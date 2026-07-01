@@ -45,9 +45,9 @@ class IndigoScriptGenerator:
             sequence.disable_cooler();
         """
 
-if __name__ == "__main__":
-    generator = IndigoScriptGenerator()
+# if __name__ == "__main__":
+#     generator = IndigoScriptGenerator()
     
-    print("--- TEST OSSERVAZIONE ---")
-    script = generator.generate_observation("Orione", "05h 35m", "-05d 23m", 4, 30, "R", "RAW 16 1124x899", True)
-    print(script)
+#     print("--- TEST OSSERVAZIONE ---")
+#     script = generator.generate_observation("Orione", "05h 35m", "-05d 23m", 4, 30, "R", "RAW 16 1124x899", True)
+#     print(script)
