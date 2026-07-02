@@ -18,7 +18,7 @@ class IndigoScriptGenerator:
                 script_chunk += f"sequence.capture_batch({frames},{exposition});\n"
             return script_chunk
         
-        max_cycle_time = 600 # in Seconds
+        max_cycle_time = 900 # in Seconds
         max_time_per_filter = max_cycle_time / len(filters)
 
         # Quanti scatti ci stanno dentro?
