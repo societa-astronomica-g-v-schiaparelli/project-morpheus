@@ -10,10 +10,11 @@ class ObservationRequest(BaseModel):
     dec: str
     frames: int
     exposition: float
-    filter: str
+    filters: list[str]
     mode: str
     guide: bool = True
     focus: bool = True
+    sequential: bool = False
 
 @router.post("/observations")
 async def schedule_observation(request: ObservationRequest):
