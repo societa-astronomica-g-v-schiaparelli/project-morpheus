@@ -1,13 +1,14 @@
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from services.scheduler import add_observation_to_queue, generate_scripts
+from utils.coordinates import  sexagesimal_to_decimal
 
 router = APIRouter(prefix="/api/v1")
 
-class ObservationRequest(BaseModel):
+class ObservationRequest(BaseModel):   
     target_name: str
-    ra: str
-    dec: str
+    ra: float
+    dec: float
     frames: int
     exposition: float
     filters: list[str]
@@ -15,6 +16,11 @@ class ObservationRequest(BaseModel):
     guide: bool = True
     focus: bool = True
     sequential: bool = False
+
+    @field_validator("ra", "dec", mode="before")
+    @classmethod
+    def _to_decimal(cls, value, info):
+        return sexagesimal_to_decimal(value, info.field_name)
 
 @router.post("/observations")
 async def schedule_observation(request: ObservationRequest):
