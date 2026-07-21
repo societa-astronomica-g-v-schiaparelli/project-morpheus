@@ -1,4 +1,4 @@
-from astropy.coordinates import EarthLocation, SkyCoord, AltAz, get_sun
+from astropy.coordinates import EarthLocation, SkyCoord, AltAz, get_sun, get_body
 from astropy.time import Time
 from typing import cast
 import astropy.units as u
@@ -116,3 +116,73 @@ def night_window(date, twilight_deg=-18, step_minutes=2):
         return None
 
     return times[idx[0]], times[idx[-1]]
+
+
+def moon_altitude(time):
+    """
+    Come 'sun_altitude', ma per la Luna (posizione da get_body('moon')).
+    'time' puo' essere un singolo Time o un array. Serve a "pesare" il vincolo
+    Luna: una Luna sotto l'orizzonte (altezza negativa) non illumina il cielo.
+    """
+    moon = get_body("moon", time, location=OBSERVATORY)
+    pov = AltAz(obstime=time, location=OBSERVATORY)
+    return cast(float, moon.transform_to(pov).alt.deg)
+
+
+def moon_separation(ra, dec, time):
+    """
+    Distanza angolare (in gradi) tra un target ('ra' ore, 'dec' gradi) e la Luna,
+    misurata come si vede dall'osservatorio: porto ENTRAMBI nel sistema AltAz e poi
+    misuro con .separation. Per la Luna, che e' vicina, questo passaggio e'
+    obbligatorio: confrontarla in un sistema diverso da quello del target da' numeri
+    sbagliati. 'time' puo' essere un istante o un array.
+    """
+    pov = AltAz(obstime=time, location=OBSERVATORY)
+    target = SkyCoord(ra=ra * u.hourangle, dec=dec * u.deg).transform_to(pov)
+    moon = get_body("moon", time, location=OBSERVATORY).transform_to(pov)
+    return cast(float, target.separation(moon).deg)
+
+
+def moon_phase(time):
+    """
+    Frazione illuminata della Luna: 0.0 = Luna nuova (buia), 1.0 = Luna piena.
+    E' una proprieta' geocentrica (uguale da tutta la Terra), quindi qui NON serve
+    AltAz. La ricavo dall'angolo Sole-Luna e dalle loro distanze. 'time' puo' essere
+    un istante o un array.
+    """
+    sun = get_sun(time)
+    moon = get_body("moon", time)
+    elongation = sun.separation(moon)  # angolo Sole-Luna visto dalla Terra
+    # angolo di fase (Sole-Luna-Terra visto dalla Luna) -> frazione illuminata
+    phase_angle = np.arctan2(
+        sun.distance * np.sin(elongation),
+        moon.distance - sun.distance * np.cos(elongation),
+    )
+    illuminated = (1 + np.cos(phase_angle)) / 2
+    return cast(float, illuminated.value)
+
+
+def moon_constraint_ok(ra, dec, time, base_angle=90):
+    """
+    Decide se un target ('ra' ore, 'dec' gradi) e' abbastanza lontano dalla Luna
+    per essere fotografato. La "zona vietata" intorno alla Luna vale
+        base_angle * fase * (altezza_luna / 90)
+    e vale 0 se la Luna e' sotto l'orizzonte (non disturba). Il target passa se la
+    sua distanza dalla Luna e' >= zona vietata.
+    Ritorna un dict con la decisione e i numeri che l'hanno prodotta (per spiegare
+    le scelte dello scheduler). 'time' puo' essere un istante o un array.
+    """
+    alt = moon_altitude(time)
+    phase = moon_phase(time)
+    separation = moon_separation(ra, dec, time)
+
+    # la zona vietata conta solo se la Luna e' sopra l'orizzonte, altrimenti 0
+    required = np.where(alt > 0, base_angle * phase * (alt / 90), 0.0)
+
+    return {
+        "ok": bool(np.all(separation >= required)),
+        "required_separation": required,
+        "separation": separation,
+        "moon_altitude": alt,
+        "moon_phase": phase,
+    }
