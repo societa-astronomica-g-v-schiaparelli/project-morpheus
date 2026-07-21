@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from pydantic import BaseModel, field_validator
-from services.scheduler import add_observation_to_queue, generate_scripts
+from services.dispatcher import add_observation_to_queue, generate_scripts
 from utils.coordinates import  sexagesimal_to_decimal
 
 router = APIRouter(prefix="/api/v1")
