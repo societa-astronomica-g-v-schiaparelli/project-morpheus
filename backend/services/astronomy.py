@@ -38,7 +38,7 @@ def visibility_summary(times, altitudes, min_altitude=30):
     Dai risultati di 'altitude_curve' ricava i numeri che servono allo scheduler.
     'min_altitude' e' la soglia (in gradi) sotto cui il target non conta come osservabile.
     Ritorna un dizionario con:
-      - transit_time    : istante di altezza massima (il picco della curva)
+      - apex_time       : istante di altezza massima (il picco della curva)
       - max_altitude    : quel valore massimo, in gradi
       - observable      : True se la curva supera la soglia in almeno un istante
       - window_start/end : primo e ultimo istante sopra la soglia
@@ -48,9 +48,9 @@ def visibility_summary(times, altitudes, min_altitude=30):
     """
     altitudes = np.asarray(altitudes)
 
-    # transito: il punto piu' alto della curva
+    # apice: il punto piu' alto della curva
     i_max = int(np.argmax(altitudes))
-    transit_time = times[i_max]
+    apex_time = times[i_max]
     max_altitude = float(altitudes[i_max])
 
     # maschera booleana: True dove la curva sta sopra la soglia
@@ -60,8 +60,9 @@ def visibility_summary(times, altitudes, min_altitude=30):
     if not observable:
         return {
             "observable": False,
-            "transit_time": transit_time,
+            "apex_time": apex_time,
             "max_altitude": max_altitude,
+            "mean_altitude": None,
             "window_start": None,
             "window_end": None,
             "duration_minutes": 0.0,
@@ -73,10 +74,15 @@ def visibility_summary(times, altitudes, min_altitude=30):
     window_end = times[idx[-1]]
     duration_minutes = (window_end - window_start).sec / 60
 
+    # altezza media DENTRO la finestra osservabile: serve a rompere i pari merito
+    # nell'ordinamento (a parita' di tramonto, ha priorita' chi sta piu' in basso)
+    mean_altitude = float(altitudes[above].mean())
+
     return {
         "observable": True,
-        "transit_time": transit_time,
+        "apex_time": apex_time,
         "max_altitude": max_altitude,
+        "mean_altitude": mean_altitude,
         "window_start": window_start,
         "window_end": window_end,
         "duration_minutes": duration_minutes,
