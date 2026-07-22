@@ -1,7 +1,9 @@
 from astropy.time import Time
 import astropy.units as u
 import numpy as np
-from services.astronomy import night_window, altitude_curve, visibility_summary, altitude_at
+from services.astronomy import (
+    night_window, altitude_curve, visibility_summary, altitude_at, moon_constraint_ok,
+)
 
 
 def rank_by_visibility(targets, date, min_altitude=30):
@@ -142,6 +144,19 @@ def build_schedule(targets, date, min_altitude=30, horizon_limit=0):
                              "reason": "nessun buco libero nella sua finestra stanotte"})
             continue
         end = start + duration * u.min
+
+        # vincolo Luna (opzionale, solo x target liberi): il target deve restare abbastanza
+        # lontano dalla Luna per tutta la durata dello slot, altrimenti -> altra notte
+        if t.get("moon_check"):
+            n = int(round((end - start).sec / 60 / 5)) + 1
+            slot_times = start + np.arange(n) * 5 * u.min
+            info = moon_constraint_ok(t["ra"], t["dec"], slot_times,
+                                      base_angle=t.get("moon_base_angle", 90))
+            if not info["ok"]:
+                unplaced.append({"name": t["name"],
+                                 "reason": "troppo vicino alla Luna, spostato ad altra notte"})
+                continue
+
         scheduled.append({"name": t["name"], "start": start, "end": end,
                           "duration_minutes": duration, "fixed": False})
         busy.append((start, end))
