@@ -23,11 +23,13 @@ def rank_by_visibility(targets, date, min_altitude=30):
         return []  # notte bianca: niente da schedulare
     night_start, night_end = night
 
-    # per ogni target: curva di altitudine nella notte + riassunto di visibilita'
+    # per ogni target: curva di altitudine nella notte + riassunto di visibilita'.
+    # Ogni target puo' avere una sua soglia 'min_altitude'; altrimenti usa quella globale.
     enriched = []
     for t in targets:
         times, altitudes = altitude_curve(t["ra"], t["dec"], night_start, night_end)
-        summary = visibility_summary(times, altitudes, min_altitude=min_altitude)
+        summary = visibility_summary(times, altitudes,
+                                     min_altitude=t.get("min_altitude", min_altitude))
         enriched.append({**t, **summary})
 
     # tengo solo gli osservabili e li ordino con chiave doppia:
