@@ -169,3 +169,59 @@ def build_schedule(targets, date, min_altitude=30, horizon_limit=0):
         "unplaced": unplaced,
         "conflicts": conflicts,
     }
+
+
+def plan_campaign(targets, start_date, nights=7, min_altitude=30, horizon_limit=0):
+    """
+    Pianifica un insieme di target su piu' notti consecutive (ROLLOVER).
+    Scorre 'nights' notti a partire da 'start_date'. Ogni notte esegue build_schedule
+    sui target ancora da fare: chi entra e' schedulato quella notte e non si ripropone;
+    chi resta (unplaced) viene ritentato la notte successiva.
+
+    Gli orari fissi valgono solo per la loro notte: ogni fisso viene assegnato alla
+    notte la cui finestra contiene il suo 'fixed_start' (se nessuna, e' fuori campagna).
+
+    Ritorna:
+      - by_night          : lista di {date, schedule} (output di build_schedule per notte)
+      - free_unscheduled  : target liberi mai piazzati entro l'orizzonte di 'nights' notti
+      - fixed_unschedulable : orari fissi che cadono fuori dalle notti pianificate
+    """
+    fixed = [t for t in targets if t.get("fixed_start")]
+    free = [t for t in targets if not t.get("fixed_start")]
+
+    dates = [start_date + i * u.day for i in range(nights)]
+    windows = [night_window(d) for d in dates]
+
+    # smisto ogni orario fisso alla notte la cui finestra contiene il suo istante
+    fixed_by_night = {i: [] for i in range(nights)}
+    fixed_unschedulable = []
+    for t in fixed:
+        ts = Time(t["fixed_start"])
+        night_i = next((i for i, w in enumerate(windows)
+                        if w is not None and w[0] <= ts <= w[1]), None)
+        if night_i is None:
+            fixed_unschedulable.append({"name": t["name"],
+                                        "reason": "orario fisso fuori dalle notti pianificate"})
+        else:
+            fixed_by_night[night_i].append(t)
+
+    by_night = []
+    for i, date in enumerate(dates):
+        tonight = fixed_by_night[i] + free
+        schedule = build_schedule(tonight, date,
+                                  min_altitude=min_altitude, horizon_limit=horizon_limit)
+        by_night.append({"date": date, "schedule": schedule})
+
+        # i liberi schedulati stanotte sono "fatti": li tolgo dal giro
+        done = {e["name"] for e in schedule["scheduled"]}
+        free = [t for t in free if t["name"] not in done]
+
+        # mi fermo se non resta nulla da fare (ne' liberi ne' fissi futuri)
+        if not free and not any(fixed_by_night[j] for j in range(i + 1, nights)):
+            break
+
+    return {
+        "by_night": by_night,
+        "free_unscheduled": free,
+        "fixed_unschedulable": fixed_unschedulable,
+    }
