@@ -84,6 +84,31 @@ def earliest_free_start(desired, duration_minutes, busy, limit):
     return None
 
 
+def first_gap(window_start, window_end, busy):
+    """
+    Trova il PRIMO buco libero dentro [window_start, window_end] rispetto agli
+    intervalli occupati 'busy', e quanto e' grande. Serve allo split: dentro quel
+    buco ci infiliamo quante pose ci stanno.
+    Ritorna (start, minuti_disponibili), oppure (None, 0) se non c'e' spazio.
+    """
+    start = window_start
+    moved = True
+    while moved:                       # spingo 'start' fuori da eventuali blocchi occupati
+        moved = False
+        for b_start, b_end in busy:
+            if b_start <= start < b_end:
+                start = b_end
+                moved = True
+    if start >= window_end:
+        return None, 0
+    # il buco arriva fino al prossimo blocco che inizia dopo 'start', o alla fine finestra
+    limit = window_end
+    for b_start, _ in busy:
+        if start < b_start < limit:
+            limit = b_start
+    return start, (limit - start).sec / 60
+
+
 def build_schedule(targets, date, min_altitude=30, horizon_limit=0):
     """
     Costruisce una schedule oraria per la notte, in due fasi:
@@ -137,13 +162,28 @@ def build_schedule(targets, date, min_altitude=30, horizon_limit=0):
 
     # --- Fase 2: liberi, per priorita', nei buchi ---
     for t in rank_by_visibility(free, date, min_altitude=min_altitude):
-        duration = observation_duration_minutes(t)
-        start = earliest_free_start(t["window_start"], duration, busy, t["window_end"])
-        if start is None:
-            unplaced.append({"name": t["name"],
-                             "reason": "nessun buco libero nella sua finestra stanotte"})
-            continue
-        end = start + duration * u.min
+        per_frame_min = t["exposition"] / 60
+
+        if t.get("splittable"):
+            # split: piazzo quante pose entrano nel primo buco; le altre alla notte dopo
+            start, avail = first_gap(t["window_start"], t["window_end"], busy)
+            frames_fit = int(avail // per_frame_min) if start is not None else 0
+            if frames_fit < 1:
+                unplaced.append({"name": t["name"], "remaining_frames": t["frames"],
+                                 "reason": "nessun buco stanotte (split rimandato)"})
+                continue
+            frames_now = min(t["frames"], frames_fit)
+            end = start + frames_now * per_frame_min * u.min
+        else:
+            # intero o niente: cerco il primo buco che contiene tutta la durata
+            frames_now = t["frames"]
+            start = earliest_free_start(t["window_start"], observation_duration_minutes(t),
+                                        busy, t["window_end"])
+            if start is None:
+                unplaced.append({"name": t["name"],
+                                 "reason": "nessun buco libero nella sua finestra stanotte"})
+                continue
+            end = start + frames_now * per_frame_min * u.min
 
         # vincolo Luna (opzionale, solo x target liberi): il target deve restare abbastanza
         # lontano dalla Luna per tutta la durata dello slot, altrimenti -> altra notte
@@ -153,13 +193,18 @@ def build_schedule(targets, date, min_altitude=30, horizon_limit=0):
             info = moon_constraint_ok(t["ra"], t["dec"], slot_times,
                                       base_angle=t.get("moon_base_angle", 90))
             if not info["ok"]:
-                unplaced.append({"name": t["name"],
+                unplaced.append({"name": t["name"], "remaining_frames": t["frames"],
                                  "reason": "troppo vicino alla Luna, spostato ad altra notte"})
                 continue
 
+        remaining = t["frames"] - frames_now  # >0 solo se split parziale
         scheduled.append({"name": t["name"], "start": start, "end": end,
-                          "duration_minutes": duration, "fixed": False})
+                          "duration_minutes": frames_now * per_frame_min,
+                          "frames": frames_now, "fixed": False, "partial": remaining > 0})
         busy.append((start, end))
+        if remaining > 0:
+            unplaced.append({"name": t["name"], "remaining_frames": remaining,
+                             "reason": f"split: restano {remaining} pose per le prossime notti"})
 
     scheduled.sort(key=lambda e: e["start"].jd)  # ordine cronologico finale
     return {
@@ -212,9 +257,20 @@ def plan_campaign(targets, start_date, nights=7, min_altitude=30, horizon_limit=
                                   min_altitude=min_altitude, horizon_limit=horizon_limit)
         by_night.append({"date": date, "schedule": schedule})
 
-        # i liberi schedulati stanotte sono "fatti": li tolgo dal giro
-        done = {e["name"] for e in schedule["scheduled"]}
-        free = [t for t in free if t["name"] not in done]
+        # aggiorno il giro dei target 'liberi' per la notte successiva:
+        # - completati (piazzati NON parziali) -> escono
+        # - split parziali -> restano con le pose rimanenti (remaining_frames)
+        # - non piazzati -> restano invariati e riprovano
+        completed = {e["name"] for e in schedule["scheduled"] if not e.get("partial")}
+        remaining_frames = {u["name"]: u["remaining_frames"]
+                            for u in schedule["unplaced"] if "remaining_frames" in u}
+        next_free = []
+        for t in free:
+            if t["name"] in remaining_frames:
+                next_free.append({**t, "frames": remaining_frames[t["name"]]})
+            elif t["name"] not in completed:
+                next_free.append(t)
+        free = next_free
 
         # mi fermo se non resta nulla da fare (ne' liberi ne' fissi futuri)
         if not free and not any(fixed_by_night[j] for j in range(i + 1, nights)):
