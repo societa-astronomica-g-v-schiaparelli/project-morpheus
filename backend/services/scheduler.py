@@ -158,7 +158,7 @@ def build_schedule(targets, date, min_altitude=30, horizon_limit=0):
                 "reason": "orario fisso in conflitto con un altro fisso (FIFO: rifiutato)",
             })
             continue
-        scheduled.append({"name": t["name"], "start": start, "end": end,
+        scheduled.append({"id": t.get("id"), "name": t["name"], "start": start, "end": end,
                           "duration_minutes": observation_duration_minutes(t),
                           "frames": t["frames"], "fixed": True, "partial": False})
         busy.append((start, end))
@@ -201,7 +201,7 @@ def build_schedule(targets, date, min_altitude=30, horizon_limit=0):
                 continue
 
         remaining = t["frames"] - frames_now  # >0 solo se split parziale
-        scheduled.append({"name": t["name"], "start": start, "end": end,
+        scheduled.append({"id": t.get("id"), "name": t["name"], "start": start, "end": end,
                           "duration_minutes": frames_now * per_frame_min,
                           "frames": frames_now, "fixed": False, "partial": remaining > 0})
         busy.append((start, end))

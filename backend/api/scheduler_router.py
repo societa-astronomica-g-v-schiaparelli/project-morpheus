@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from astropy.time import Time
-from db import list_observations
+from db import observations_to_schedule, save_plan
 from services.scheduler import plan_campaign
 
 router = APIRouter(prefix="/api/v1")
@@ -18,6 +18,7 @@ def _serialize_schedule(s):
         "night_end": _iso(s["night_end"]),
         "scheduled": [
             {
+                "observation_id": e.get("id"),
                 "name": e["name"],
                 "start": _iso(e["start"]),
                 "end": _iso(e["end"]),
@@ -53,7 +54,8 @@ async def make_schedule(date: str, nights: int = 7, min_altitude: float = 30):
     partire da 'date' (giorno della prima sera).
     Restituisce il piano in JSON (tutti i Time convertiti in stringhe ISO).
     """
-    observations = list_observations(status="pending")
+    observations = observations_to_schedule()
     targets = [o.to_target() for o in observations]
     plan = plan_campaign(targets, Time(date), nights=nights, min_altitude=min_altitude)
+    save_plan(plan)   # rende il piano persistente (tabella ScheduledSlot)
     return _serialize_plan(plan)

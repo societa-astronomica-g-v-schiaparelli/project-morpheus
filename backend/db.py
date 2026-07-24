@@ -45,7 +45,7 @@ class Observation(SQLModel, table=True):
         """Traduce l'osservazione nel dict che si aspetta lo scheduler (target_name -> name),
         includendo solo i campi di scheduling effettivamente impostati. Considera le pose
         gia' fatte: allo scheduler passa quante ne RESTANO (frames - frames_done)."""
-        target = {"name": self.target_name, "ra": self.ra, "dec": self.dec,
+        target = {"id": self.id, "name": self.target_name, "ra": self.ra, "dec": self.dec,
                   "frames": self.frames - self.frames_done, "exposition": self.exposition}
         if self.fixed_start:
             target["fixed_start"] = self.fixed_start
@@ -57,6 +57,23 @@ class Observation(SQLModel, table=True):
         if self.splittable:
             target["splittable"] = True
         return target
+
+
+class ScheduledSlot(SQLModel, table=True):
+    """
+    Uno slot del piano: un'osservazione (o un suo pezzo, per lo split) piazzata in
+    una notte a un orario preciso. E' l'output dello scheduler reso persistente, così
+    il dispatcher può leggerlo e il frontend può mostrarlo.
+    """
+    id: int | None = Field(default=None, primary_key=True)
+    observation_id: int | None = Field(default=None, foreign_key="observation.id")
+    target_name: str
+    night: str            # giorno della sera, es. "2026-07-19"
+    start: str            # ISO UTC
+    end: str
+    frames: int
+    partial: bool = False
+    fixed: bool = False
 
 
 def init_db():
@@ -81,3 +98,58 @@ def list_observations(status: str | None = None) -> list[Observation]:
         if status is not None:
             query = query.where(Observation.status == status)
         return list(session.exec(query))
+
+
+def observations_to_schedule() -> list[Observation]:
+    """Le osservazioni ancora da fare = da schedulare: 'pending' o 'in_progress'
+    (quelle 'completed'/'cancelled' sono fuori). Ordinate per arrivo (FIFO)."""
+    with Session(engine) as session:
+        query = (select(Observation)
+                 .where(Observation.status.in_(["pending", "in_progress"]))
+                 .order_by(Observation.created_at))
+        return list(session.exec(query))
+
+
+def save_plan(plan: dict):
+    """Salva il piano calcolato dallo scheduler nella tabella ScheduledSlot,
+    sostituendo il piano precedente. Converte i Time in stringhe ISO."""
+    with Session(engine) as session:
+        for old in session.exec(select(ScheduledSlot)):   # via il piano vecchio
+            session.delete(old)
+        for night in plan["by_night"]:
+            night_str = night["date"].iso[:10]
+            for e in night["schedule"]["scheduled"]:
+                session.add(ScheduledSlot(
+                    observation_id=e.get("id"),
+                    target_name=e["name"],
+                    night=night_str,
+                    start=e["start"].iso,
+                    end=e["end"].iso,
+                    frames=e.get("frames") or 0,
+                    partial=e.get("partial", False),
+                    fixed=e.get("fixed", False),
+                ))
+        session.commit()
+
+
+def list_slots(night: str | None = None) -> list[ScheduledSlot]:
+    """Legge gli slot del piano, eventualmente di una sola notte. Ordinati per orario."""
+    with Session(engine) as session:
+        query = select(ScheduledSlot).order_by(ScheduledSlot.start)
+        if night is not None:
+            query = query.where(ScheduledSlot.night == night)
+        return list(session.exec(query))
+
+
+def record_progress(observation_id: int, frames_done: int):
+    """Registra 'frames_done' pose scattate per un'osservazione (le SOMMA a quelle gia'
+    fatte) e aggiorna lo stato: 'completed' se ha finito, altrimenti 'in_progress'.
+    Mantiene lo stato che serve al multi-notte."""
+    with Session(engine) as session:
+        obs = session.get(Observation, observation_id)
+        obs.frames_done += frames_done
+        obs.status = "completed" if obs.frames_done >= obs.frames else "in_progress"
+        session.add(obs)
+        session.commit()
+        session.refresh(obs)
+        return obs
