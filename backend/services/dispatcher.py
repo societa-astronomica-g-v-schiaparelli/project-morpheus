@@ -1,20 +1,17 @@
 from services.script_generator import IndigoScriptGenerator
+from db import list_observations
 from pathlib import Path
 import websockets, json
 
 PRELUDE = (Path(__file__).parent.parent / "vendor" / "Sequencer.js").read_text()
-
-observation_queue = []
-
-def add_observation_to_queue(request_data: dict):
-    observation_queue.append(request_data)
 
 def run_script(script):
     return json.dumps({"newTextVector": {"device": "Scripting Agent",
         "name": "AGENT_SCRIPTING_RUN_SCRIPT", "items": [{"name": "SCRIPT", "value": script}]}})
 
 async def generate_scripts():
-    if not observation_queue:
+    observations = list_observations(status="pending")
+    if not observations:
         print("Nessuna osservazione in coda.")
         return
 
@@ -29,29 +26,29 @@ async def generate_scripts():
         async with websockets.connect(indigo_ws_url, open_timeout=3) as websocket:
             print("Connesso a " + indigo_ws_url + "  invio del preludio in corso...")
             await websocket.send(run_script(PRELUDE))
-    
-            for request in observation_queue:
+
+            for obs in observations:
                 body = generator.generate_observation(
-                    target_name=request["target_name"],
-                    ra=request["ra"],
-                    dec=request["dec"],
-                    frames=request["frames"],
-                    exposition=request["exposition"],
-                    filters=request["filters"],
-                    mode=request["mode"],
-                    guide=request["guide"],
-                    focus=request["focus"],
-                    sequential=request["sequential"]
+                    target_name=obs.target_name,
+                    ra=obs.ra,
+                    dec=obs.dec,
+                    frames=obs.frames,
+                    exposition=obs.exposition,
+                    filters=obs.filters,
+                    mode=obs.mode,
+                    guide=obs.guide,
+                    focus=obs.focus,
+                    sequential=obs.sequential
                 )
-                print(f"Script generato per {request['target_name']}, lo invio a INDIGO...")
+                print(f"Script generato per {obs.target_name}, lo invio a INDIGO...")
 
                 script = generator.finalize_script(body)
                 print(script)
-            
+
                 await websocket.send(script)
-                print(f"Script per {request['target_name']} inviato con successo!")
+                print(f"Script per {obs.target_name} inviato con successo!")
 
     except Exception as e:
         print(f"Errore di connessione a {indigo_ws_url}: {e}")
-        
+
     print("--- FINE PROCESSO ---")

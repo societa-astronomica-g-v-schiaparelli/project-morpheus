@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel, field_validator, model_validator
-from services.dispatcher import add_observation_to_queue, generate_scripts
+from services.dispatcher import generate_scripts
+from db import add_observation, list_observations
 from utils.coordinates import  sexagesimal_to_decimal
 
 router = APIRouter(prefix="/api/v1")
@@ -62,8 +63,13 @@ class ObservationRequest(BaseModel):
 
 @router.post("/observations")
 async def schedule_observation(request: ObservationRequest):
-    add_observation_to_queue(request.model_dump())
-    return {"status": "success", "message": f"Osservazione per {request.target_name} messa in coda."}
+    obs = add_observation(request.model_dump())
+    return {"status": "success", "id": obs.id,
+            "message": f"Osservazione per {request.target_name} salvata (id {obs.id})."}
+
+@router.get("/observations")
+async def get_observations():
+    return list_observations()
 
 @router.post("/generate")
 async def generate():
