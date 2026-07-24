@@ -141,6 +141,18 @@ def list_slots(night: str | None = None) -> list[ScheduledSlot]:
         return list(session.exec(query))
 
 
+def cancel_night(night: str) -> int:
+    """Annulla il piano di una notte: cancella i suoi slot dal calendario (ScheduledSlot).
+    Usato quando il meteo e' avverso. Ritorna quanti slot ha tolto. NON tocca le
+    osservazioni (le richieste di osservazione restano, verranno ripianificate)."""
+    with Session(engine) as session:
+        slots = list(session.exec(select(ScheduledSlot).where(ScheduledSlot.night == night)))
+        for s in slots:
+            session.delete(s)
+        session.commit()
+        return len(slots)
+
+
 def record_progress(observation_id: int, frames_done: int):
     """Registra 'frames_done' pose scattate per un'osservazione (le SOMMA a quelle gia'
     fatte) e aggiorna lo stato: 'completed' se ha finito, altrimenti 'in_progress'.

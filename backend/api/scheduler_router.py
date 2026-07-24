@@ -1,7 +1,8 @@
 from fastapi import APIRouter
 from astropy.time import Time
-from db import observations_to_schedule, save_plan
+from db import observations_to_schedule, save_plan, list_slots, cancel_night
 from services.scheduler import plan_campaign
+from services.weather import weather_is_favorable
 
 router = APIRouter(prefix="/api/v1")
 
@@ -59,3 +60,26 @@ async def make_schedule(date: str, nights: int = 7, min_altitude: float = 30):
     plan = plan_campaign(targets, Time(date), nights=nights, min_altitude=min_altitude)
     save_plan(plan)   # rende il piano persistente (tabella ScheduledSlot)
     return _serialize_plan(plan)
+
+
+@router.get("/weather")
+async def weather(date: str):
+    """Verdetto meteo per la notte 'date' (giorno della serata osservativa, es. 2026-07-26)."""
+    return weather_is_favorable(date)
+
+
+@router.post("/night/start")
+async def start_night(date: str):
+    """
+    Inizio nottata: controlla il meteo e, se avverso, ANNULLA il piano di stanotte (vince su tutto).
+    Se favorevole, restituisce gli slot da eseguire.
+    """
+    meteo = weather_is_favorable(date)
+    if not meteo["favorable"]:
+        cancelled = cancel_night(date)
+        return {"night": date, "action": "annullata", "weather": meteo,
+                "slots_cancelled": cancelled}
+    slots = list_slots(date)
+    return {"night": date, "action": "via libera", "weather": meteo,
+            "slots": [{"start": s.start, "end": s.end, "target": s.target_name,
+                       "frames": s.frames} for s in slots]}
