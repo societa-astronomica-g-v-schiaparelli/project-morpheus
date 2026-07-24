@@ -159,7 +159,8 @@ def build_schedule(targets, date, min_altitude=30, horizon_limit=0):
             })
             continue
         scheduled.append({"name": t["name"], "start": start, "end": end,
-                          "duration_minutes": observation_duration_minutes(t), "fixed": True})
+                          "duration_minutes": observation_duration_minutes(t),
+                          "frames": t["frames"], "fixed": True, "partial": False})
         busy.append((start, end))
 
     # --- Fase 2: liberi, per priorita', nei buchi ---

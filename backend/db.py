@@ -41,6 +41,23 @@ class Observation(SQLModel, table=True):
         default_factory=lambda: datetime.now(timezone.utc)  # per l'ordine FIFO
     )
 
+    def to_target(self):
+        """Traduce l'osservazione nel dict che si aspetta lo scheduler (target_name -> name),
+        includendo solo i campi di scheduling effettivamente impostati. Considera le pose
+        gia' fatte: allo scheduler passa quante ne RESTANO (frames - frames_done)."""
+        target = {"name": self.target_name, "ra": self.ra, "dec": self.dec,
+                  "frames": self.frames - self.frames_done, "exposition": self.exposition}
+        if self.fixed_start:
+            target["fixed_start"] = self.fixed_start
+        if self.min_altitude is not None:
+            target["min_altitude"] = self.min_altitude
+        if self.moon_check:
+            target["moon_check"] = True
+            target["moon_base_angle"] = self.moon_base_angle
+        if self.splittable:
+            target["splittable"] = True
+        return target
+
 
 def init_db():
     """Crea il file e le tabelle se non esistono ancora. Da chiamare all'avvio dell'app."""
