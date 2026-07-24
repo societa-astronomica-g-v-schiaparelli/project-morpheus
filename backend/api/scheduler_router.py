@@ -48,18 +48,23 @@ def _serialize_plan(plan):
     }
 
 
-@router.post("/schedule")
-async def make_schedule(date: str, nights: int = 7, min_altitude: float = 30):
-    """
-    Pianifica le osservazioni 'pending' del DB sulla campagna di 'nights' notti a
-    partire da 'date' (giorno della prima sera).
-    Restituisce il piano in JSON (tutti i Time convertiti in stringhe ISO).
-    """
+def _recompute_plan(date: str, nights: int, min_altitude: float):
+    """Ripianifica dallo STATO ATTUALE del DB (osservazioni ancora da fare, con le
+    pose gia' fatte gia' scontate) e salva il piano fresco. Ritorna il piano."""
     observations = observations_to_schedule()
     targets = [o.to_target() for o in observations]
     plan = plan_campaign(targets, Time(date), nights=nights, min_altitude=min_altitude)
     save_plan(plan)   # rende il piano persistente (tabella ScheduledSlot)
-    return _serialize_plan(plan)
+    return plan
+
+
+@router.post("/schedule")
+async def make_schedule(date: str, nights: int = 7, min_altitude: float = 30):
+    """
+    Pianifica le osservazioni da fare sulla campagna di 'nights' notti a partire
+    da 'date' (giorno della prima sera). Restituisce il piano in JSON.
+    """
+    return _serialize_plan(_recompute_plan(date, nights, min_altitude))
 
 
 @router.get("/weather")
@@ -69,16 +74,19 @@ async def weather(date: str):
 
 
 @router.post("/night/start")
-async def start_night(date: str):
+async def start_night(date: str, nights: int = 7, min_altitude: float = 30):
     """
-    Inizio nottata: controlla il meteo e, se avverso, ANNULLA il piano di stanotte (vince su tutto).
-    Se favorevole, restituisce gli slot da eseguire.
+    Inizio nottata:
+      - se il meteo e' avverso, ANNULLA il piano di stanotte (vince su tutto);
+      - se e' favorevole, RIPIANIFICA dallo stato attuale (cosi' assorbe eventuali
+        notti saltate o pose gia' fatte) e restituisce gli slot freschi da eseguire.
     """
     meteo = weather_is_favorable(date)
     if not meteo["favorable"]:
         cancelled = cancel_night(date)
         return {"night": date, "action": "annullata", "weather": meteo,
                 "slots_cancelled": cancelled}
+    _recompute_plan(date, nights, min_altitude)   # piano sempre fresco prima di eseguire
     slots = list_slots(date)
     return {"night": date, "action": "via libera", "weather": meteo,
             "slots": [{"start": s.start, "end": s.end, "target": s.target_name,
