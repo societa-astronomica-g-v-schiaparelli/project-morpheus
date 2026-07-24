@@ -4,25 +4,104 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Morpheus — Osservazioni</title>
-  <!-- Pico.css in locale: stile pulito senza dover mettere classi ovunque -->
   <link rel="stylesheet" href="/ui/pico.min.css">
   <style>
-    /* unica aggiunta mia: le "pillole" colorate per lo stato */
     .stato { font-size: .8rem; padding: .15rem .6rem; border-radius: 1rem;
              background: var(--pico-secondary-background); color: #fff; }
     .stato.completed  { background: #2e7d32; }
     .stato.in_progress { background: #b26a00; }
+    .filtri { display: flex; gap: 1.2rem; flex-wrap: wrap; margin-bottom: .5rem; }
+    .filtri label { display: inline-flex; align-items: center; gap: .3rem; margin: 0; }
+    #esito:not(:empty) { padding: .5rem .75rem; border-radius: .5rem;
+                         background: var(--pico-card-background-color); }
   </style>
 </head>
 <body>
   <main class="container">
     <hgroup>
       <h1>Morpheus</h1>
-      <p>Osservazioni in coda</p>
+      <p>Pannello osservazioni</p>
     </hgroup>
 
-    <button class="secondary" onclick="carica()">Aggiorna</button>
+    <details open>
+      <summary>Nuova osservazione</summary>
+      <form id="nuova" onsubmit="return invia(event)">
 
+        <fieldset>
+          <legend>Target</legend>
+          <label>Nome
+            <input name="target_name" placeholder="Vega" required>
+          </label>
+          <div class="grid">
+            <label>RA (ore o hh:mm:ss)
+              <input name="ra" placeholder="18:36:56" required>
+            </label>
+            <label>DEC (gradi o gg:mm:ss)
+              <input name="dec" placeholder="+38:47:01" required>
+            </label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Acquisizione</legend>
+          <div class="grid">
+            <label>Pose
+              <input name="frames" type="number" min="1" value="60" required>
+            </label>
+            <label>Esposizione (s)
+              <input name="exposition" type="number" min="1" value="120" required>
+            </label>
+          </div>
+
+          <label>Filtri</label>
+          <div class="filtri">
+            <label><input type="checkbox" name="filtro" value="L" checked> L</label>
+            <label><input type="checkbox" name="filtro" value="R" checked> R</label>
+            <label><input type="checkbox" name="filtro" value="G" checked> G</label>
+            <label><input type="checkbox" name="filtro" value="B" checked> B</label>
+          </div>
+
+          <label>Modalità camera (binning / lettura)
+            <input name="mode" placeholder="es. BIN 1x1" required>
+            <small>Deve corrispondere a una modalità supportata dalla camera in INDIGO.</small>
+          </label>
+
+          <div class="filtri">
+            <label><input type="checkbox" name="guide" checked> Guida</label>
+            <label><input type="checkbox" name="focus" checked> Messa a fuoco</label>
+            <label><input type="checkbox" name="sequential"> Filtri sequenziali (no rotazione)</label>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Scheduling</legend>
+          <label>Orario fisso UTC — opzionale
+            <input name="fixed_start" placeholder="2026-07-19 23:00:00" oninput="aggiornaVincoli()">
+            <small>Se impostato, vince su tutto tranne il meteo (e disattiva i vincoli soft).</small>
+          </label>
+
+          <div id="soft">
+            <label>Altezza minima (gradi) — opzionale
+              <input name="min_altitude" type="number">
+            </label>
+            <div class="grid">
+              <label><input type="checkbox" name="moon_check" onchange="aggiornaVincoli()"> Controllo distanza Luna</label>
+              <label>Angolo base zona Luna (gradi)
+                <input name="moon_base_angle" type="number" value="90" disabled>
+              </label>
+            </div>
+          </div>
+
+          <label><input type="checkbox" name="splittable"> Splittabile su piu' notti</label>
+        </fieldset>
+
+        <button type="submit">Salva osservazione</button>
+        <p id="esito"></p>
+      </form>
+    </details>
+
+    <h2>In coda</h2>
+    <button class="secondary" onclick="carica()">Aggiorna</button>
     <table>
       <thead>
         <tr><th>#</th><th>Target</th><th>RA / DEC</th><th>Pose</th><th>Stato</th><th>Tipo</th></tr>
@@ -32,14 +111,24 @@
   </main>
 
   <script>
-    // chiede al backend l'elenco delle osservazioni e riempie la tabella
+    const form = document.getElementById("nuova");
+
+    // abilita/disabilita i campi in base allo stato del form:
+    // - orario fisso impostato -> disattivo i vincoli soft (altezza minima, Luna)
+    // - "controllo Luna" spento -> disattivo il suo angolo
+    function aggiornaVincoli() {
+      const conFisso = form.fixed_start.value.trim() !== "";
+      form.min_altitude.disabled = conFisso;
+      form.moon_check.disabled = conFisso;
+      if (conFisso) form.moon_check.checked = false;
+      form.moon_base_angle.disabled = conFisso || !form.moon_check.checked;
+    }
+
+    // legge la lista e riempie la tabella
     async function carica() {
-      const risposta = await fetch("/api/v1/observations");
-      const osservazioni = await risposta.json();
-
+      const osservazioni = await (await fetch("/api/v1/observations")).json();
       const corpo = document.getElementById("righe");
-      corpo.innerHTML = "";  // svuoto prima di ridisegnare
-
+      corpo.innerHTML = "";
       for (const o of osservazioni) {
         const tipo = o.fixed_start ? "fisso" : (o.splittable ? "splittabile" : "libero");
         const riga = document.createElement("tr");
@@ -54,7 +143,59 @@
       }
     }
 
-    carica();  // carica appena la pagina si apre
+    // invia il form come POST JSON, poi ricarica la lista
+    async function invia(evento) {
+      evento.preventDefault();
+      const esito = document.getElementById("esito");
+
+      const filtri = [...form.querySelectorAll('input[name="filtro"]:checked')].map(c => c.value);
+      if (filtri.length === 0) { esito.textContent = "✗ Seleziona almeno un filtro."; return false; }
+
+      const dati = {
+        target_name: form.target_name.value,
+        ra: form.ra.value,               // il backend accetta sia decimale sia hh:mm:ss
+        dec: form.dec.value,
+        frames: Number(form.frames.value),
+        exposition: Number(form.exposition.value),
+        filters: filtri,
+        mode: form.mode.value,
+        guide: form.guide.checked,
+        focus: form.focus.checked,
+        sequential: form.sequential.checked,
+        splittable: form.splittable.checked,
+      };
+      if (form.fixed_start.value) dati.fixed_start = form.fixed_start.value;
+      if (!form.min_altitude.disabled && form.min_altitude.value)
+        dati.min_altitude = Number(form.min_altitude.value);
+      if (!form.moon_check.disabled && form.moon_check.checked) {
+        dati.moon_check = true;
+        dati.moon_base_angle = Number(form.moon_base_angle.value);
+      }
+
+      const risposta = await fetch("/api/v1/observations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(dati),
+      });
+
+      if (risposta.ok) {
+        const data = await risposta.json();
+        esito.textContent = "✓ " + data.message;
+        form.reset();
+        aggiornaVincoli();
+        carica();
+      } else {
+        const err = await risposta.json();
+        const dettaglio = typeof err.detail === "string"
+          ? err.detail
+          : (err.detail?.[0]?.msg ?? JSON.stringify(err.detail));
+        esito.textContent = "✗ Errore: " + dettaglio;
+      }
+      return false;
+    }
+
+    aggiornaVincoli();
+    carica();
   </script>
 </body>
 </html>
