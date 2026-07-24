@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Morpheus — Osservazioni</title>
+  <!-- Pico.css in locale: stile pulito senza dover mettere classi ovunque -->
+  <link rel="stylesheet" href="/ui/pico.min.css">
+  <style>
+    /* unica aggiunta mia: le "pillole" colorate per lo stato */
+    .stato { font-size: .8rem; padding: .15rem .6rem; border-radius: 1rem;
+             background: var(--pico-secondary-background); color: #fff; }
+    .stato.completed  { background: #2e7d32; }
+    .stato.in_progress { background: #b26a00; }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <hgroup>
+      <h1>Morpheus</h1>
+      <p>Osservazioni in coda</p>
+    </hgroup>
+
+    <button class="secondary" onclick="carica()">Aggiorna</button>
+
+    <table>
+      <thead>
+        <tr><th>#</th><th>Target</th><th>RA / DEC</th><th>Pose</th><th>Stato</th><th>Tipo</th></tr>
+      </thead>
+      <tbody id="righe"></tbody>
+    </table>
+  </main>
+
+  <script>
+    // chiede al backend l'elenco delle osservazioni e riempie la tabella
+    async function carica() {
+      const risposta = await fetch("/api/v1/observations");
+      const osservazioni = await risposta.json();
+
+      const corpo = document.getElementById("righe");
+      corpo.innerHTML = "";  // svuoto prima di ridisegnare
+
+      for (const o of osservazioni) {
+        const tipo = o.fixed_start ? "fisso" : (o.splittable ? "splittabile" : "libero");
+        const riga = document.createElement("tr");
+        riga.innerHTML = `
+          <td>${o.id}</td>
+          <td><strong>${o.target_name}</strong></td>
+          <td>${o.ra.toFixed(3)} / ${o.dec.toFixed(3)}</td>
+          <td>${o.frames_done}/${o.frames}</td>
+          <td><span class="stato ${o.status}">${o.status}</span></td>
+          <td>${tipo}</td>`;
+        corpo.appendChild(riga);
+      }
+    }
+
+    carica();  // carica appena la pagina si apre
+  </script>
+</body>
+</html>
