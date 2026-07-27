@@ -100,6 +100,13 @@ def list_observations(status: str | None = None) -> list[Observation]:
         return list(session.exec(query))
 
 
+def get_observation(observation_id: int) -> Observation | None:
+    """Recupera una singola osservazione dal suo id (serve a morpheus per generare
+    lo script partendo da uno slot del piano)."""
+    with Session(engine) as session:
+        return session.get(Observation, observation_id)
+
+
 def observations_to_schedule() -> list[Observation]:
     """Le osservazioni ancora da fare = da schedulare: 'pending' o 'in_progress'
     (quelle 'completed'/'cancelled' sono fuori). Ordinate per arrivo (FIFO)."""
