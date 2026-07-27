@@ -70,6 +70,38 @@ async def send_shutdown(ws):
     """Mette in sicurezza e spegne a fine nottata (park + cooler off)."""
     await ws.send(run_script(generator.finalize_script(generator.generate_shutdown())))
 
+async def await_sequence(ws, max_seconds):
+    """
+    FEEDBACK: dopo aver avviato una sequenza, ascolta i messaggi di INDIGO finche'
+    non termina. Ritorna (esito, progressi):
+      - esito: 'ok' (SEQUENCE_STATE=Ok) | 'alert' (Alert) | 'timeout'
+      - progressi: ultimo dizionario di item di SEQUENCE_STATE (STEP, PROGRESS, ...)
+    Legge di continuo -> stato reale + buffer sempre svuotato.
+    Assunzione: l'invio appena fatto porta SEQUENCE_STATE a Busy, quindi il primo
+    stato terminale che vediamo appartiene a questa sequenza.
+    """
+    scadenza = asyncio.get_event_loop().time() + max_seconds
+    progressi = {}
+    while asyncio.get_event_loop().time() < scadenza:
+        try:
+            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+        except asyncio.TimeoutError:
+            continue
+        try:
+            messaggio = json.loads(raw)
+        except Exception:
+            continue
+        for _, v in messaggio.items():
+            if not isinstance(v, dict) or v.get("name") != "SEQUENCE_STATE":
+                continue
+            stato = v.get("state")
+            progressi = {i["name"]: i["value"] for i in v.get("items", [])}
+            if stato == "Ok":
+                return "ok", progressi
+            if stato == "Alert":
+                return "alert", progressi
+    return "timeout", progressi
+
 
 async def generate_scripts():
     """

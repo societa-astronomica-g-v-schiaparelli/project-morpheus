@@ -14,7 +14,7 @@ from astropy.time import Time
 import astropy.units as u
 import websockets
 
-from db import observations_to_schedule, save_plan, list_slots, get_observation
+from db import observations_to_schedule, save_plan, list_slots, get_observation, record_progress
 from services.scheduler import plan_campaign
 from services.astronomy import night_window
 from services.weather import weather_is_favorable
@@ -86,7 +86,7 @@ async def run_night(date_str):
         await dispatcher.inject_prelude(ws)
         await dispatcher.send_startup(ws)
 
-        # 4) invia ogni osservazione al suo orario
+        # 4) invia ogni osservazione al suo orario e aspetta il suo esito
         for slot in slots:
             await sleep_until(slot.start)
             obs = get_observation(slot.observation_id)
@@ -94,7 +94,16 @@ async def run_night(date_str):
                 continue
             print(f"[morpheus] {slot.start[11:16]} -> {slot.target_name} ({slot.frames} pose)")
             await dispatcher.send_observation(ws, obs)
-            # Fase 3: qui ascolteremo il feedback di INDIGO e aggiorneremo il DB.
+
+            # FEEDBACK: aspetta che la sequenza finisca, con timeout generoso legato
+            # alla durata prevista dello slot; registra i progressi solo se completata.
+            durata = (Time(slot.end) - Time(slot.start)).sec
+            esito, _ = await dispatcher.await_sequence(ws, max_seconds=durata * 1.5 + 120)
+            if esito == "ok":
+                record_progress(slot.observation_id, slot.frames)
+                print(f"[morpheus]   completata: +{slot.frames} pose registrate")
+            else:
+                print(f"[morpheus]   sequenza {esito}: pose NON registrate (verra' ripianificata)")
 
         # 5) fine notte: metti in sicurezza e spegni
         await dispatcher.send_shutdown(ws)
