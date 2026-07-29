@@ -79,27 +79,27 @@ async def await_sequence(ws, max_seconds):
     Assunzione: l'invio appena fatto porta SEQUENCE_STATE a Busy, quindi il primo
     stato terminale che vediamo appartiene a questa sequenza.
     """
-    scadenza = asyncio.get_event_loop().time() + max_seconds
-    progressi = {}
-    while asyncio.get_event_loop().time() < scadenza:
+    deadline = asyncio.get_event_loop().time() + max_seconds
+    progress = {}
+    while asyncio.get_event_loop().time() < deadline:
         try:
             raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
         except asyncio.TimeoutError:
             continue
         try:
-            messaggio = json.loads(raw)
+            message = json.loads(raw)
         except Exception:
             continue
-        for _, v in messaggio.items():
+        for _, v in message.items():
             if not isinstance(v, dict) or v.get("name") != "SEQUENCE_STATE":
                 continue
-            stato = v.get("state")
-            progressi = {i["name"]: i["value"] for i in v.get("items", [])}
-            if stato == "Ok":
-                return "ok", progressi
-            if stato == "Alert":
-                return "alert", progressi
-    return "timeout", progressi
+            state = v.get("state")
+            progress = {i["name"]: i["value"] for i in v.get("items", [])}
+            if state == "Ok":
+                return "ok", progress
+            if state == "Alert":
+                return "alert", progress
+    return "timeout", progress
 
 
 async def dispatch_observation_now(obs, do_setup=True, wait_seconds=180):
@@ -115,9 +115,9 @@ async def dispatch_observation_now(obs, do_setup=True, wait_seconds=180):
             if do_setup:
                 await setup_devices(ws)
             await send_observation(ws, obs)
-            esito, progressi = await await_sequence(ws, wait_seconds)
-            return {"esito": esito, "progressi": progressi}
+            outcome, progress = await await_sequence(ws, wait_seconds)
+            return {"outcome": outcome, "progress": progress}
     except Exception as e:
-        return {"esito": "errore_connessione", "dettaglio": str(e)}
+        return {"outcome": "connection_error", "detail": str(e)}
 
 

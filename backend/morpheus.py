@@ -67,9 +67,9 @@ async def run_night(date_str):
     print(f"[morpheus] --- nottata {date_str} ---")
 
     # 1) il meteo vince su tutto: se avverso, si salta la notte
-    meteo = weather_is_favorable(date_str)
-    if not meteo["favorable"]:
-        print(f"[morpheus] meteo avverso ({meteo['reason']}) -> nottata annullata")
+    weather = weather_is_favorable(date_str)
+    if not weather["favorable"]:
+        print(f"[morpheus] meteo avverso ({weather['reason']}) -> nottata annullata")
         return
 
     # 2) congela il piano della serata e prendi gli slot di stanotte
@@ -97,13 +97,13 @@ async def run_night(date_str):
 
             # FEEDBACK: aspetta che la sequenza finisca, con timeout generoso legato
             # alla durata prevista dello slot; registra i progressi solo se completata.
-            durata = (Time(slot.end) - Time(slot.start)).sec
-            esito, _ = await dispatcher.await_sequence(ws, max_seconds=durata * 1.5 + 120)
-            if esito == "ok":
+            duration = (Time(slot.end) - Time(slot.start)).sec
+            outcome, _ = await dispatcher.await_sequence(ws, max_seconds=duration * 1.5 + 120)
+            if outcome == "ok":
                 record_progress(slot.observation_id, slot.frames)
                 print(f"[morpheus]   completata: +{slot.frames} pose registrate")
             else:
-                print(f"[morpheus]   sequenza {esito}: pose NON registrate (verra' ripianificata)")
+                print(f"[morpheus]   sequenza {outcome}: pose NON registrate (verra' ripianificata)")
 
         # 5) fine notte: metti in sicurezza e spegni
         await dispatcher.send_shutdown(ws)

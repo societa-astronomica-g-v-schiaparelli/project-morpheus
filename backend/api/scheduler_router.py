@@ -81,13 +81,13 @@ async def start_night(date: str, nights: int = 7, min_altitude: float = 30):
       - se e' favorevole, RIPIANIFICA dallo stato attuale (cosi' assorbe eventuali
         notti saltate o pose gia' fatte) e restituisce gli slot freschi da eseguire.
     """
-    meteo = weather_is_favorable(date)
-    if not meteo["favorable"]:
+    weather = weather_is_favorable(date)
+    if not weather["favorable"]:
         cancelled = cancel_night(date)
-        return {"night": date, "action": "annullata", "weather": meteo,
+        return {"night": date, "action": "annullata", "weather": weather,
                 "slots_cancelled": cancelled}
     _recompute_plan(date, nights, min_altitude)   # piano sempre fresco prima di eseguire
     slots = list_slots(date)
-    return {"night": date, "action": "via libera", "weather": meteo,
+    return {"night": date, "action": "via libera", "weather": weather,
             "slots": [{"start": s.start, "end": s.end, "target": s.target_name,
                        "frames": s.frames} for s in slots]}

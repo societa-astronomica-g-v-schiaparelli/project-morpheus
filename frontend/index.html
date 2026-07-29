@@ -178,7 +178,7 @@
       try {
         const r = await fetch(`/api/v1/dispatch/${id}?setup=${!skip}`, { method: "POST" });
         const d = await r.json();
-        const msg = d.error ? d.error : (d.esito + (d.dettaglio ? " — " + d.dettaglio : ""));
+        const msg = d.error ? d.error : (d.outcome + (d.detail ? " — " + d.detail : ""));
         esito.textContent = `Esito per ${nome}: ${msg}`;
         carica();
       } catch (e) {
