@@ -1,7 +1,6 @@
 import asyncio
 
 from services.script_generator import IndigoScriptGenerator
-from db import list_observations
 from pathlib import Path
 import websockets, json
 
@@ -22,7 +21,7 @@ AGENT_SELECTIONS = [
 ]
 
 # indirizzo del server INDIGO e generatore di script (senza stato -> riusabile)
-INDIGO_WS_URL = "ws://192.168.40.8:7624"
+INDIGO_WS_URL = "ws://morpheus.astrogeo.va.it:7624"
 generator = IndigoScriptGenerator()
 
 def run_script(script):
@@ -48,27 +47,27 @@ async def setup_devices(ws):
 
 # --- PRIMITIVE: le "mani" che parlano a INDIGO su una connessione 'ws' ---
 
-async def inject_prelude(ws):
-    """Semina la classe Sequence nell'agent. Va fatto UNA volta per connessione."""
-    await ws.send(run_script(PRELUDE))
+def _full_script(body):
+    """Ogni invio a INDIGO e' un'UNICA esecuzione: preludio + script finalizzato.
+    (INDIGO vuole il preludio insieme allo script, non 'seminato' a parte.)"""
+    return run_script(PRELUDE + "\n" + generator.finalize_script(body))
 
 async def send_observation(ws, obs):
-    """Genera lo script per UNA osservazione e lo invia a INDIGO."""
+    """Genera lo script per UNA osservazione (preludio incluso) e lo invia a INDIGO."""
     body = generator.generate_observation(
         target_name=obs.target_name, ra=obs.ra, dec=obs.dec,
         frames=obs.frames, exposition=obs.exposition, filters=obs.filters,
         mode=obs.mode, guide=obs.guide, focus=obs.focus, sequential=obs.sequential,
     )
-    script = generator.finalize_script(body)
-    await ws.send(run_script(script))
+    await ws.send(_full_script(body))
 
 async def send_startup(ws):
     """Accende i sistemi a inizio nottata (es. raffreddamento camera)."""
-    await ws.send(run_script(generator.finalize_script(generator.generate_startup())))
+    await ws.send(_full_script(generator.generate_startup()))
 
 async def send_shutdown(ws):
     """Mette in sicurezza e spegne a fine nottata (park + cooler off)."""
-    await ws.send(run_script(generator.finalize_script(generator.generate_shutdown())))
+    await ws.send(_full_script(generator.generate_shutdown()))
 
 async def await_sequence(ws, max_seconds):
     """
@@ -103,27 +102,22 @@ async def await_sequence(ws, max_seconds):
     return "timeout", progressi
 
 
-async def generate_scripts():
+async def dispatch_observation_now(obs, do_setup=True, wait_seconds=180):
     """
-    Percorso MANUALE/di prova (endpoint /generate): connette, accende i dispositivi,
-    semina il preludio e invia subito tutte le osservazioni 'pending'.
-    Nella versione finale sara' morpheus.py a orchestrare tutto agli orari giusti,
-    slot per slot; questo resta utile per collaudi rapidi.
+    Collaudo MANUALE on-demand: connette a INDIGO, (opzionale) accende/seleziona i
+    dispositivi, invia UNA osservazione (preludio incluso) e aspetta l'esito.
+    NON aggiorna il DB (e' una prova ripetibile). Ritorna {esito, progressi}.
+    'do_setup=False' salta setup_devices: utile se i dispositivi li seleziona gia'
+    un profilo INDIGO dei tecnici (evita il conflitto 'busy/in use').
     """
-    observations = list_observations(status="pending")
-    if not observations:
-        print("Nessuna osservazione in coda.")
-        return
-
-    print("--- INIZIO GENERAZIONE ED INVIO SCRIPT ---")
     try:
-        async with websockets.connect(INDIGO_WS_URL, open_timeout=3) as ws:
-            print(f"Connesso a {INDIGO_WS_URL}")
-            await setup_devices(ws)      # accende/associa i dispositivi
-            await inject_prelude(ws)     # semina la classe Sequence
-            for obs in observations:
-                print(f"Invio script per {obs.target_name}...")
-                await send_observation(ws, obs)
+        async with websockets.connect(INDIGO_WS_URL, open_timeout=5, max_size=None) as ws:
+            if do_setup:
+                await setup_devices(ws)
+            await send_observation(ws, obs)
+            esito, progressi = await await_sequence(ws, wait_seconds)
+            return {"esito": esito, "progressi": progressi}
     except Exception as e:
-        print(f"Errore di connessione a {INDIGO_WS_URL}: {e}")
-    print("--- FINE PROCESSO ---")
+        return {"esito": "errore_connessione", "dettaglio": str(e)}
+
+

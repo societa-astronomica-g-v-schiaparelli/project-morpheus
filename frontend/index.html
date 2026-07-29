@@ -12,8 +12,9 @@
     .stato.in_progress { background: #b26a00; }
     .filtri { display: flex; gap: 1.2rem; flex-wrap: wrap; margin-bottom: .5rem; }
     .filtri label { display: inline-flex; align-items: center; gap: .3rem; margin: 0; }
-    #esito:not(:empty) { padding: .5rem .75rem; border-radius: .5rem;
+    #esito:not(:empty), #esito-lancio:not(:empty) { padding: .5rem .75rem; border-radius: .5rem;
                          background: var(--pico-card-background-color); }
+    td button { margin: 0; padding: .25rem .7rem; font-size: .8rem; width: auto; }
     nav.schede button { margin-right: .5rem; }
     .tag { font-size: .75rem; padding: .1rem .5rem; border-radius: 1rem;
            background: var(--pico-secondary-background); color: #fff; }
@@ -95,10 +96,16 @@
       </details>
 
       <h2>In coda</h2>
-      <button class="secondary" onclick="carica()">Aggiorna</button>
+      <div style="display:flex; align-items:center; gap:1rem; flex-wrap:wrap;">
+        <button class="secondary" onclick="carica()">Aggiorna</button>
+        <label style="margin:0; display:inline-flex; align-items:center; gap:.35rem; font-size:.85rem;">
+          <input type="checkbox" id="skipSetup"> salta il nostro setup dispositivi (test)
+        </label>
+      </div>
+      <p id="esito-lancio"></p>
       <table>
         <thead>
-          <tr><th>#</th><th>Target</th><th>RA / DEC</th><th>Pose</th><th>Stato</th><th>Tipo</th></tr>
+          <tr><th>#</th><th>Target</th><th>RA / DEC</th><th>Pose</th><th>Stato</th><th>Tipo</th><th>Azione</th></tr>
         </thead>
         <tbody id="righe"></tbody>
       </table>
@@ -153,8 +160,31 @@
           <td>${o.ra.toFixed(3)} / ${o.dec.toFixed(3)}</td>
           <td>${o.frames_done}/${o.frames}</td>
           <td><span class="stato ${o.status}">${o.status}</span></td>
-          <td>${tipo}</td>`;
+          <td>${tipo}</td>
+          <td><button data-id="${o.id}" data-name="${o.target_name}" onclick="lancia(this)">Lancia</button></td>`;
         corpo.appendChild(riga);
+      }
+    }
+
+    // lancio manuale di un target ORA (per il collaudo durante la call)
+    async function lancia(btn) {
+      const id = btn.dataset.id, nome = btn.dataset.name;
+      if (!confirm(`Lanciare "${nome}" ORA sul telescopio?`)) return;
+      const skip = document.getElementById("skipSetup").checked;
+      const esito = document.getElementById("esito-lancio");
+      const testo0 = btn.textContent;
+      btn.disabled = true; btn.textContent = "…";
+      esito.textContent = `Lancio di ${nome} in corso… (puo' richiedere qualche minuto)`;
+      try {
+        const r = await fetch(`/api/v1/dispatch/${id}?setup=${!skip}`, { method: "POST" });
+        const d = await r.json();
+        const msg = d.error ? d.error : (d.esito + (d.dettaglio ? " — " + d.dettaglio : ""));
+        esito.textContent = `Esito per ${nome}: ${msg}`;
+        carica();
+      } catch (e) {
+        esito.textContent = `Errore di rete: ${e}`;
+      } finally {
+        btn.disabled = false; btn.textContent = testo0;
       }
     }
 

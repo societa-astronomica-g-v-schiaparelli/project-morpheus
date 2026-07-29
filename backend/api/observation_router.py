@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel, field_validator, model_validator
-from services.dispatcher import generate_scripts
-from db import add_observation, list_observations
+from services.dispatcher import dispatch_observation_now
+from db import add_observation, list_observations, get_observation
 from utils.coordinates import  sexagesimal_to_decimal
 
 router = APIRouter(prefix="/api/v1")
@@ -71,7 +71,11 @@ async def schedule_observation(request: ObservationRequest):
 async def get_observations():
     return list_observations()
 
-@router.post("/generate")
-async def generate():
-    await generate_scripts()
-    return {"status": "success", "message": "Script generati e inviati a INDIGO"}
+@router.post("/dispatch/{observation_id}")
+async def dispatch_now(observation_id: int, setup: bool = True):
+    """Collaudo manuale: fa partire UNA osservazione ora. 'setup=false' salta il
+    nostro setup_devices (se i dispositivi li seleziona un profilo dei tecnici)."""
+    obs = get_observation(observation_id)
+    if obs is None:
+        return {"error": f"osservazione {observation_id} non trovata"}
+    return await dispatch_observation_now(obs, do_setup=setup)

@@ -80,10 +80,10 @@ async def run_night(date_str):
         return
     print(f"[morpheus] {len(slots)} slot in programma")
 
-    # 3) una connessione per tutta la notte: accendi, semina, avvia
+    # 3) una connessione per tutta la notte: accendi e avvia
+    #    (il preludio e' incluso in ogni script inviato, non piu' seminato a parte)
     async with websockets.connect(dispatcher.INDIGO_WS_URL, open_timeout=5, max_size=None) as ws:
         await dispatcher.setup_devices(ws)
-        await dispatcher.inject_prelude(ws)
         await dispatcher.send_startup(ws)
 
         # 4) invia ogni osservazione al suo orario e aspetta il suo esito
