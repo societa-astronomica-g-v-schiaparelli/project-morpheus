@@ -1,12 +1,13 @@
 import textwrap
+import config
 
 class IndigoScriptGenerator:
     """
     Generatore di script ECMAScript per il controllo di INDIGO Astronomy.
     """
-    COOLING_TEMP = -20  # ° C
-    FOCUS_EXP = 5       # Seconds    
-    DOME_WAIT = 120     # Seconds
+    COOLING_TEMP = config.COOLING_TEMP
+    FOCUS_EXP = config.FOCUS_EXP
+    DOME_WAIT = config.DOME_WAIT
 
     def _build_capture_sequence(self, frames: int, exposition: float, filters: list[str], sequential: bool) -> str:
         """Helper: Genera la porzione di script JS dedicata agli scatti e ai filtri."""

@@ -1,5 +1,6 @@
 import asyncio
 
+import config
 from services.script_generator import IndigoScriptGenerator
 from pathlib import Path
 import websockets, json
@@ -20,8 +21,6 @@ AGENT_SELECTIONS = [
     ("Mount Agent",  "FILTER_MOUNT_LIST",   "Mount Simulator"),
 ]
 
-# indirizzo del server INDIGO e generatore di script (senza stato -> riusabile)
-INDIGO_WS_URL = "ws://morpheus.astrogeo.va.it:7624"
 generator = IndigoScriptGenerator()
 
 def run_script(script):
@@ -83,7 +82,7 @@ async def await_sequence(ws, max_seconds):
     progress = {}
     while asyncio.get_event_loop().time() < deadline:
         try:
-            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+            raw = await asyncio.wait_for(ws.recv(), timeout=config.WS_RECV_TIMEOUT)
         except asyncio.TimeoutError:
             continue
         try:
@@ -111,7 +110,7 @@ async def dispatch_observation_now(obs, do_setup=True, wait_seconds=180):
     un profilo INDIGO dei tecnici (evita il conflitto 'busy/in use').
     """
     try:
-        async with websockets.connect(INDIGO_WS_URL, open_timeout=5, max_size=None) as ws:
+        async with websockets.connect(config.INDIGO_WS_URL, open_timeout=5, max_size=None) as ws:
             if do_setup:
                 await setup_devices(ws)
             await send_observation(ws, obs)

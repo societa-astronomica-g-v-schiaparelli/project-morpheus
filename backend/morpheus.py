@@ -14,16 +14,12 @@ from astropy.time import Time
 import astropy.units as u
 import websockets
 
+import config
 from db import observations_to_schedule, save_plan, list_slots, get_observation, record_progress
 from services.scheduler import plan_campaign
 from services.astronomy import night_window
 from services.weather import weather_is_favorable
 from services import dispatcher
-
-# --- impostazioni ---
-WAKE_BEFORE_MIN = 30    # minuti prima dell'inizio notte in cui svegliarsi
-NIGHTS_HORIZON = 7      # su quante notti pianificare
-MIN_ALTITUDE = 30       # altezza minima di default del target (gradi)
 
 
 def freeze_plan(date_str):
@@ -31,7 +27,7 @@ def freeze_plan(date_str):
     Il piano e' una previsione, ogni sera lo si rifa' sullo stato reale prima di eseguire."""
     targets = [o.to_target() for o in observations_to_schedule()]
     plan = plan_campaign(targets, Time(date_str),
-                         nights=NIGHTS_HORIZON, min_altitude=MIN_ALTITUDE)
+                         nights=config.NIGHTS_HORIZON, min_altitude=config.DEFAULT_MIN_ALTITUDE)
     save_plan(plan)
     return plan
 
@@ -54,7 +50,7 @@ def next_observing_night(now=None):
         night = night_window(day)
         if night is not None:
             night_start, _ = night
-            wake = night_start - WAKE_BEFORE_MIN * u.min
+            wake = night_start - config.WAKE_BEFORE_MIN * u.min
             if wake > now:
                 return day.iso[:10], wake
         day = day + 1 * u.day
@@ -82,7 +78,7 @@ async def run_night(date_str):
 
     # 3) una connessione per tutta la notte: accendi e avvia
     #    (il preludio e' incluso in ogni script inviato, non piu' seminato a parte)
-    async with websockets.connect(dispatcher.INDIGO_WS_URL, open_timeout=5, max_size=None) as ws:
+    async with websockets.connect(config.INDIGO_WS_URL, open_timeout=5, max_size=None) as ws:
         await dispatcher.setup_devices(ws)
         await dispatcher.send_startup(ws)
 

@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from astropy.time import Time
+import config
 from db import observations_to_schedule, save_plan, list_slots, cancel_night
 from services.scheduler import plan_campaign
 from services.weather import weather_is_favorable
@@ -59,7 +60,8 @@ def _recompute_plan(date: str, nights: int, min_altitude: float):
 
 
 @router.post("/schedule")
-async def make_schedule(date: str, nights: int = 7, min_altitude: float = 30):
+async def make_schedule(date: str, nights: int = config.NIGHTS_HORIZON,
+                        min_altitude: float = config.DEFAULT_MIN_ALTITUDE):
     """
     Pianifica le osservazioni da fare sulla campagna di 'nights' notti a partire
     da 'date' (giorno della prima sera). Restituisce il piano in JSON.
@@ -74,7 +76,8 @@ async def weather(date: str):
 
 
 @router.post("/night/start")
-async def start_night(date: str, nights: int = 7, min_altitude: float = 30):
+async def start_night(date: str, nights: int = config.NIGHTS_HORIZON,
+                      min_altitude: float = config.DEFAULT_MIN_ALTITUDE):
     """
     Inizio nottata:
       - se il meteo e' avverso, ANNULLA il piano di stanotte (vince su tutto);

@@ -1,12 +1,13 @@
 from astropy.time import Time
 import astropy.units as u
 import numpy as np
+import config
 from services.astronomy import (
     night_window, altitude_curve, visibility_summary, altitude_at, moon_constraint_ok,
 )
 
 
-def rank_by_visibility(targets, date, min_altitude=30):
+def rank_by_visibility(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE):
     """
     Ordina una lista di target per priorita' di visibilita' nella notte indicata.
     Criterio: fotografare prima cio' che e' visibile per meno tempo, ovvero chi tramonta prima (window_end piu' presto);
@@ -111,7 +112,7 @@ def first_gap(window_start, window_end, busy):
     return start, (limit - start).sec / 60
 
 
-def build_schedule(targets, date, min_altitude=30, horizon_limit=0):
+def build_schedule(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE, horizon_limit=config.HORIZON_LIMIT):
     """
     Costruisce una schedule oraria per la notte, in due fasi:
       1) ORARI FISSI (chi ha 'fixed_start', un Time/stringa UTC) inchiodati al loro
@@ -219,7 +220,8 @@ def build_schedule(targets, date, min_altitude=30, horizon_limit=0):
     }
 
 
-def plan_campaign(targets, start_date, nights=7, min_altitude=30, horizon_limit=0):
+def plan_campaign(targets, start_date, nights=config.NIGHTS_HORIZON,
+                  min_altitude=config.DEFAULT_MIN_ALTITUDE, horizon_limit=config.HORIZON_LIMIT):
     """
     Pianifica un insieme di target su piu' notti consecutive (ROLLOVER).
     Scorre 'nights' notti a partire da 'start_date'. Ogni notte esegue build_schedule

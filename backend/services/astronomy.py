@@ -3,6 +3,7 @@ from astropy.time import Time
 from typing import cast
 import astropy.units as u
 import numpy as np
+import config
 
 
 OBSERVATORY = EarthLocation(lat=45.868523 * u.deg, lon=8.770190 * u.deg, height=1226 * u.m)
@@ -33,7 +34,7 @@ def altitude_curve(ra, dec, start, end, step_minutes=10):
     return times, altitudes
 
 
-def visibility_summary(times, altitudes, min_altitude=30):
+def visibility_summary(times, altitudes, min_altitude=config.DEFAULT_MIN_ALTITUDE):
     """
     Dai risultati di 'altitude_curve' ricava i numeri che servono allo scheduler.
     'min_altitude' e' la soglia (in gradi) sotto cui il target non conta come osservabile.
