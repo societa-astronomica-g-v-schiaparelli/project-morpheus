@@ -24,7 +24,7 @@ async def send_observation(ws, obs):
     body = generator.generate_observation(
         target_name=obs.target_name, ra=obs.ra, dec=obs.dec,
         frames=obs.frames, exposition=obs.exposition, filters=obs.filters,
-        mode=obs.mode, guide=obs.guide, focus=obs.focus, sequential=obs.sequential,
+        binning=obs.binning, guide=obs.guide, focus=obs.focus, sequential=obs.sequential,
     )
     await ws.send(_full_script(body))
 

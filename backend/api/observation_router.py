@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 from pydantic import BaseModel, field_validator, model_validator
+import config
 from services.dispatcher import dispatch_observation_now
 from db import add_observation, list_observations, get_observation
 from utils.coordinates import  sexagesimal_to_decimal
@@ -13,7 +14,7 @@ class ObservationRequest(BaseModel):
     frames: int
     exposition: float
     filters: list[str]
-    mode: str
+    binning: str = "BIN1X1"   # BIN1X1 / BIN2X2 / BIN4X4 -> tradotto in modalita' camera
     guide: bool = True
     focus: bool = True
     sequential: bool = False
@@ -33,6 +34,13 @@ class ObservationRequest(BaseModel):
     @classmethod
     def _to_decimal(cls, value, info):
         return sexagesimal_to_decimal(value, info.field_name)
+
+    @field_validator("binning")
+    @classmethod
+    def _valid_binning(cls, value):
+        if value not in config.BINNING_TO_MODE:
+            raise ValueError(f"binning non valido: {value}. Ammessi: {list(config.BINNING_TO_MODE)}")
+        return value
 
     @model_validator(mode="after")
     def _fixed_excludes_soft(self):
@@ -70,6 +78,15 @@ async def schedule_observation(request: ObservationRequest):
 @router.get("/observations")
 async def get_observations():
     return list_observations()
+
+@router.get("/config")
+async def get_config():
+    """Liste per popolare i menu del frontend (fonte unica: config.py)."""
+    return {
+        "binning": list(config.BINNING_TO_MODE.keys()),
+        "filters": config.FILTER_LIST,
+        "frame_types": config.FRAME_TYPE_LIST,
+    }
 
 @router.post("/dispatch/{observation_id}")
 async def dispatch_now(observation_id: int):

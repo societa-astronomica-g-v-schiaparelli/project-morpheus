@@ -63,9 +63,9 @@
               <label><input type="checkbox" name="filtro" value="G" checked> G</label>
               <label><input type="checkbox" name="filtro" value="B" checked> B</label>
             </div>
-            <label>Modalità camera (binning / lettura)
-              <input name="mode" placeholder="es. BIN 1x1" required>
-              <small>Deve corrispondere a una modalità supportata dalla camera in INDIGO.</small>
+            <label>Binning
+              <select name="binning" id="binningSelect" required></select>
+              <small>Verrà tradotto nella modalità camera corrispondente.</small>
             </label>
             <div class="filtri">
               <label><input type="checkbox" name="guide" checked> Guida</label>
@@ -192,7 +192,7 @@
         target_name: form.target_name.value,
         ra: form.ra.value, dec: form.dec.value,
         frames: Number(form.frames.value), exposition: Number(form.exposition.value),
-        filters: filtri, mode: form.mode.value,
+        filters: filtri, binning: form.binning.value,
         guide: form.guide.checked, focus: form.focus.checked,
         sequential: form.sequential.checked, splittable: form.splittable.checked,
       };
@@ -270,9 +270,17 @@
         cont.insertAdjacentHTML("beforeend", `<small class="avviso">⚠ ${t.name}: ${t.reason}</small><br>`);
     }
 
+    // popola i menu (binning) dalla fonte unica del backend (/config)
+    async function caricaConfig() {
+      const cfg = await (await fetch("/api/v1/config")).json();
+      const sel = document.getElementById("binningSelect");
+      sel.innerHTML = cfg.binning.map(b => `<option value="${b}">${b}</option>`).join("");
+    }
+
     // avvio
     document.querySelector('#pianifica input[name="date"]').value =
       new Date().toISOString().slice(0, 10);   // oggi come default
+    caricaConfig();
     aggiornaVincoli();
     carica();
   </script>

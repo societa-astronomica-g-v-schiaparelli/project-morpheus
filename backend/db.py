@@ -22,7 +22,7 @@ class Observation(SQLModel, table=True):
     frames: int
     exposition: float
     filters: list[str] = Field(sa_column=Column(JSON))  # lista -> salvata come JSON
-    mode: str
+    binning: str = "BIN1X1"                              # tradotto in modalita' camera (BINNING_TO_MODE)
     guide: bool = True
     focus: bool = True
     sequential: bool = False

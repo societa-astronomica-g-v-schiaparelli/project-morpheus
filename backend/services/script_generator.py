@@ -58,13 +58,14 @@ class IndigoScriptGenerator:
         return (f'sequence.load_config("{config.HARDWARE_PRESET}");\n'
                 f"sequence.enable_cooler({self.COOLING_TEMP});")
 
-    def generate_observation(self, target_name: str, ra: str, dec: str, frames: int, exposition: float, filters: list[str], mode: str, guide: bool = False, focus: bool = False, sequential: bool = False) -> str:
+    def generate_observation(self, target_name: str, ra: str, dec: str, frames: int, exposition: float, filters: list[str], binning: str, guide: bool = False, focus: bool = False, sequential: bool = False) -> str:
         """
         Muove il telescopio e gestisce tutti i parametri di osservazione.
         """
+        camera_mode = config.BINNING_TO_MODE[binning]   # es. "BIN2X2" -> "RAW 16 2249x1799"
         script = textwrap.dedent(f"""
                 sequence.set_object_name("{target_name}");
-                sequence.select_camera_mode("{mode}");
+                sequence.select_camera_mode("{camera_mode}");
                 sequence.slew("{ra}", "{dec}");
                 sequence.wait({self.DOME_WAIT});
                 sequence.precise_goto({self.FOCUS_EXP},{ra},{dec});
