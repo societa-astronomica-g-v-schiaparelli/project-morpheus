@@ -1,5 +1,6 @@
 # --- Connessione INDIGO e hardware ---
 INDIGO_WS_URL = "ws://morpheus.astrogeo.va.it:7624"
+HARDWARE_PRESET = "DEFAULT"   # nome del preset INDIGO (load_config)
 COOLING_TEMP = -20        # °C, temperatura di raffreddamento della camera
 FOCUS_EXP = 5             # s, esposizione per messa a fuoco / precise goto
 DOME_WAIT = 120           # s, attesa per l'allineamento della cupola

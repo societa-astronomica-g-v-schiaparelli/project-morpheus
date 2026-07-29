@@ -72,10 +72,9 @@ async def get_observations():
     return list_observations()
 
 @router.post("/dispatch/{observation_id}")
-async def dispatch_now(observation_id: int, setup: bool = True):
-    """Collaudo manuale: fa partire UNA osservazione ora. 'setup=false' salta il
-    nostro setup_devices (se i dispositivi li seleziona un profilo dei tecnici)."""
+async def dispatch_now(observation_id: int):
+    """Collaudo manuale: fa partire UNA osservazione ora (startup + preset inclusi)."""
     obs = get_observation(observation_id)
     if obs is None:
         return {"error": f"osservazione {observation_id} non trovata"}
-    return await dispatch_observation_now(obs, do_setup=setup)
+    return await dispatch_observation_now(obs)

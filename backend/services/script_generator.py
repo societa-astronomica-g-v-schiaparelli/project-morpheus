@@ -53,8 +53,10 @@ class IndigoScriptGenerator:
         return script_chunk
 
     def generate_startup(self) -> str:
-        """Accende i sistemi a inizio nottata."""
-        return f"sequence.enable_cooler({self.COOLING_TEMP});"
+        """Carica il preset hardware (connette e seleziona i dispositivi) e accende
+        i sistemi a inizio nottata. Il preset sostituisce la selezione manuale."""
+        return (f'sequence.load_config("{config.HARDWARE_PRESET}");\n'
+                f"sequence.enable_cooler({self.COOLING_TEMP});")
 
     def generate_observation(self, target_name: str, ra: str, dec: str, frames: int, exposition: float, filters: list[str], mode: str, guide: bool = False, focus: bool = False, sequential: bool = False) -> str:
         """

@@ -7,44 +7,12 @@ import websockets, json
 
 PRELUDE = (Path(__file__).parent.parent / "vendor" / "Sequencer.js").read_text()
 
-DEVICES_TO_CONNECT = [
-    "CCD Imager Simulator",
-    "CCD Imager Simulator (wheel)",
-    "CCD Imager Simulator (focuser)",
-    "Mount Simulator",
-]
-
-AGENT_SELECTIONS = [
-    ("Imager Agent", "FILTER_CCD_LIST",     "CCD Imager Simulator"),
-    ("Imager Agent", "FILTER_WHEEL_LIST",   "CCD Imager Simulator (wheel)"),
-    ("Imager Agent", "FILTER_FOCUSER_LIST", "CCD Imager Simulator (focuser)"),
-    ("Mount Agent",  "FILTER_MOUNT_LIST",   "Mount Simulator"),
-]
-
 generator = IndigoScriptGenerator()
 
 def run_script(script):
     return json.dumps({"newTextVector": {"device": "Scripting Agent",
         "name": "AGENT_SCRIPTING_RUN_SCRIPT", "items": [{"name": "SCRIPT", "value": script}]}})
 
-def set_switch(device, property_name, item):
-    return json.dumps({"newSwitchVector": {"device": device, "name": property_name,
-                     "items": [{"name": item, "value": True}]}})
-
-async def setup_devices(ws):
-    for device in DEVICES_TO_CONNECT:
-        print(f"Connessione a {device} in corso...")
-        await ws.send(set_switch(device, "CONNECTION", "CONNECTED"))
-        print(f"{device} connesso!")
-
-    await asyncio.sleep(2)
-
-    for agent, property_name, item in AGENT_SELECTIONS:
-        print(f"Selezione {item} per {agent} in corso...")
-        await ws.send(set_switch(agent, property_name, item))
-        print(f"{item} selezionato per {agent}!")
-
-# --- PRIMITIVE: le "mani" che parlano a INDIGO su una connessione 'ws' ---
 
 def _full_script(body):
     """Ogni invio a INDIGO e' un'UNICA esecuzione: preludio + script finalizzato.
@@ -101,18 +69,15 @@ async def await_sequence(ws, max_seconds):
     return "timeout", progress
 
 
-async def dispatch_observation_now(obs, do_setup=True, wait_seconds=180):
+async def dispatch_observation_now(obs, wait_seconds=180):
     """
-    Collaudo MANUALE on-demand: connette a INDIGO, (opzionale) accende/seleziona i
-    dispositivi, invia UNA osservazione (preludio incluso) e aspetta l'esito.
-    NON aggiorna il DB (e' una prova ripetibile). Ritorna {esito, progressi}.
-    'do_setup=False' salta setup_devices: utile se i dispositivi li seleziona gia'
-    un profilo INDIGO dei tecnici (evita il conflitto 'busy/in use').
+    Collaudo MANUALE on-demand: connette a INDIGO, esegue lo startup (carica il preset
+    hardware + accende), invia UNA osservazione (preludio incluso) e aspetta l'esito.
+    NON aggiorna il DB (e' una prova ripetibile). Ritorna {outcome, progress}.
     """
     try:
         async with websockets.connect(config.INDIGO_WS_URL, open_timeout=5, max_size=None) as ws:
-            if do_setup:
-                await setup_devices(ws)
+            await send_startup(ws)
             await send_observation(ws, obs)
             outcome, progress = await await_sequence(ws, wait_seconds)
             return {"outcome": outcome, "progress": progress}

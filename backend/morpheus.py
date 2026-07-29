@@ -79,8 +79,7 @@ async def run_night(date_str):
     # 3) una connessione per tutta la notte: accendi e avvia
     #    (il preludio e' incluso in ogni script inviato, non piu' seminato a parte)
     async with websockets.connect(config.INDIGO_WS_URL, open_timeout=5, max_size=None) as ws:
-        await dispatcher.setup_devices(ws)
-        await dispatcher.send_startup(ws)
+        await dispatcher.send_startup(ws)   # carica il preset (load_config) + accende
 
         # 4) invia ogni osservazione al suo orario e aspetta il suo esito
         for slot in slots:
