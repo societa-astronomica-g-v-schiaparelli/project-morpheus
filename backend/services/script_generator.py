@@ -56,14 +56,16 @@ class IndigoScriptGenerator:
                 sequence.select_camera_mode("{camera_mode}");
                 sequence.slew("{ra}", "{dec}");
                 sequence.wait({self.DOME_WAIT});
-                sequence.precise_goto({self.FOCUS_EXP},{ra},{dec});
             """)
 
-        if focus:
-            script += f"sequence.focus({self.FOCUS_EXP});\n"
-
-        if guide:
-            script += f"sequence.start_guiding({self.FOCUS_EXP});\n"
+        # precise_goto, messa a fuoco e guida sono lente sul simulatore:
+        # in TEST_MODE le saltiamo per velocizzare i collaudi.
+        if not config.TEST_MODE:
+            script += f"sequence.precise_goto({self.FOCUS_EXP},{ra},{dec});\n"
+            if focus:
+                script += f"sequence.focus({self.FOCUS_EXP});\n"
+            if guide:
+                script += f"sequence.start_guiding({self.FOCUS_EXP});\n"
 
         script += self._build_capture_sequence(frames, exposition, filters, sequential)
 
