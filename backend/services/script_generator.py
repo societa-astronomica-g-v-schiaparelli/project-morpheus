@@ -19,22 +19,10 @@ class IndigoScriptGenerator:
                 script_chunk += f"sequence.capture_batch({frames},{exposition});\n"
             return script_chunk
         
-        max_cycle_time = 900 # in Seconds
-        max_time_per_filter = max_cycle_time / len(filters)
-
-        # Quanti scatti ci stanno dentro?
-        frames_per_cycle = int(max_time_per_filter / exposition)
-
-        # Evito divisioni per zero e limiti superati
-        if frames_per_cycle < 1:
-            frames_per_cycle = 1
-        if frames_per_cycle > frames:
-            frames_per_cycle = frames
-
-        # Quanti cicli per completare?
+        if frames < 1:
+            return script_chunk
+        frames_per_cycle = min(config.FRAMES_PER_CYCLE, frames)
         cycles = frames // frames_per_cycle
-        
-        # Ne manca qualcuno?
         remainder = frames % frames_per_cycle
 
         if cycles > 0:
@@ -44,12 +32,12 @@ class IndigoScriptGenerator:
                 inner += f"    sequence.capture_batch({frames_per_cycle},{exposition});\n"
             script_chunk += f"sequence.repeat({cycles}, function() {{\n{inner}}});\n"
 
-        # Generazione script per gli scatti rimanenti
+        # pose rimanenti (se 'frames' non e' multiplo di FRAMES_PER_CYCLE)
         if remainder > 0:
             for f in filters:
                 script_chunk += f'sequence.select_filter("{f}");\n'
                 script_chunk += f"sequence.capture_batch({remainder},{exposition});\n"
-            
+
         return script_chunk
 
     def generate_startup(self) -> str:
