@@ -54,6 +54,7 @@ class IndigoScriptGenerator:
         script = textwrap.dedent(f"""
                 sequence.set_object_name("{target_name}");
                 sequence.select_camera_mode("{camera_mode}");
+                sequence.select_frame_type("{config.DEFAULT_FRAME_TYPE}");
                 sequence.slew("{ra}", "{dec}");
                 sequence.wait({self.DOME_WAIT});
             """)

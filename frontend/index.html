@@ -57,12 +57,7 @@
               <label>Esposizione (s) <input name="exposition" type="number" min="1" value="120" required></label>
             </div>
             <label>Filtri</label>
-            <div class="filtri">
-              <label><input type="checkbox" name="filtro" value="L" checked> L</label>
-              <label><input type="checkbox" name="filtro" value="R" checked> R</label>
-              <label><input type="checkbox" name="filtro" value="G" checked> G</label>
-              <label><input type="checkbox" name="filtro" value="B" checked> B</label>
-            </div>
+            <div class="filtri" id="filtriBox"></div>
             <label>Binning
               <select name="binning" id="binningSelect" required></select>
               <small>Verrà tradotto nella modalità camera corrispondente.</small>
@@ -273,8 +268,14 @@
     // popola i menu (binning) dalla fonte unica del backend (/config)
     async function caricaConfig() {
       const cfg = await (await fetch("/api/v1/config")).json();
-      const sel = document.getElementById("binningSelect");
-      sel.innerHTML = cfg.binning.map(b => `<option value="${b}">${b}</option>`).join("");
+      // menu binning
+      document.getElementById("binningSelect").innerHTML =
+        cfg.binning.map(b => `<option value="${b}">${b}</option>`).join("");
+      // checkbox filtri (L/R/G/B spuntati di default, il resto no)
+      const preselezionati = ["L", "R", "G", "B"];
+      document.getElementById("filtriBox").innerHTML = cfg.filters.map(f =>
+        `<label><input type="checkbox" name="filtro" value="${f}" ${preselezionati.includes(f) ? "checked" : ""}> ${f}</label>`
+      ).join("");
     }
 
     // avvio
