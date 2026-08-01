@@ -87,21 +87,20 @@ def take_frames(frames, n, cycle):
     return taken, remaining
 
 
-def _overlaps(start, end, busy):
-    """True se l'intervallo [start, end] si sovrappone a uno degli intervalli occupati
-    'busy' (lista di coppie (b_start, b_end))."""
-    return any(start < b_end and end > b_start for b_start, b_end in busy)
-
-
-def stays_above_horizon(ra, dec, start, end, floor=0, step_minutes=5):
+def above_horizon_until(ra, dec, start, end, floor=0, step_minutes=5):
     """
-    True se il target ('ra' ore, 'dec' gradi) resta sopra l'altezza 'floor' (gradi)
-    per TUTTA la durata dello slot [start, end]. Serve a bocciare un orario fisso
-    fisicamente impossibile (target sotto l'orizzonte = telescopio puntato a terra).
+    Fino a QUANDO il target ('ra' ore, 'dec' gradi) resta sopra l'altezza 'floor'
+    (gradi) partendo da 'start'. Ritorna l'ultimo istante utile dentro [start, end]:
+    'end' se non scende mai, 'start' se e' gia' sotto in partenza.
+    Serve a troncare un orario fisso al momento in cui il target tramonta, invece di
+    puntare il telescopio a terra.
     """
     n = int(round((end - start).sec / 60 / step_minutes)) + 1
     times = start + np.arange(n) * step_minutes * u.min
-    return bool(np.min(altitude_at(ra, dec, times)) > floor)
+    below = np.where(altitude_at(ra, dec, times) <= floor)[0]
+    if len(below) == 0:
+        return end
+    return times[below[0] - 1] if below[0] > 0 else start
 
 
 def earliest_free_start(desired, duration_minutes, busy, limit):
@@ -156,8 +155,13 @@ def build_schedule(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE, hori
       1) ORARI FISSI (chi ha 'fixed_start', un Time/stringa UTC) inchiodati al loro
          slot, in ordine di arrivo (FIFO). Vincono sui vincoli SOFT (altezza minima,
          Luna, priorita'), ma NON sulla fisica: se il target e' sotto 'horizon_limit'
-         durante lo slot e' impossibile e viene rifiutato. Anche due fissi che si
+         quando si comincia e' impossibile e viene rifiutato. Anche due fissi che si
          sovrappongono danno conflitto (il secondo rifiutato). I rifiutati -> 'conflicts'.
+         Se le pose non entrano tutte prima della fine della notte (o del tramonto del
+         target, o del prossimo fisso): un fisso SPLITTABILE ne fa quante ne entrano e
+         rimanda le altre (-> 'unplaced' con 'remaining_frames', che plan_campaign
+         ripropone alla STESSA ORA la notte dopo); uno non splittabile viene rifiutato
+         dicendo quante pose ci sarebbero state.
       2) LIBERI ordinati per priorita' (rank_by_visibility), che riempiono i buchi
          rimasti senza invadere gli slot fissi.
 
@@ -192,9 +196,11 @@ def build_schedule(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE, hori
         # per lasciare spazio alla preparazione
         frames_start = Time(t["fixed_start"])
         start = frames_start - overhead * u.min
-        end = frames_start + frames_duration_minutes(t) * u.min
-        # la preparazione puo' anche avvenire al crepuscolo, ma non prima che la notte
-        # (finestra osservativa) sia cominciata: altrimenti lo slot non ci sta davvero
+        per_frame_min = t["exposition"] / 60
+        wanted = total_frames(t["frames"])
+
+        # (a) la preparazione puo' avvenire al crepuscolo, ma non prima che la notte
+        #     (finestra osservativa) sia cominciata: altrimenti lo slot non ci sta davvero
         if start < night_start:
             late_by = round((night_start - start).sec / 60)
             conflicts.append({
@@ -203,25 +209,67 @@ def build_schedule(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE, hori
                            f"prima delle pose, sposta l'inizio di almeno {late_by} min"),
             })
             continue
-        # la fisica vince sull'utente: il target deve stare sopra l'orizzonte nello slot
-        # (anche durante la preparazione il telescopio punta gia' il target)
-        if not stays_above_horizon(t["ra"], t["dec"], start, end, floor=horizon_limit):
+
+        # (b) la fisica vince sull'utente: se il target e' gia' sotto l'orizzonte quando
+        #     si comincia, l'osservazione e' impossibile (telescopio puntato a terra)
+        if float(altitude_at(t["ra"], t["dec"], start)) <= horizon_limit:
             conflicts.append({
                 "name": t["name"],
                 "reason": "target sotto l'orizzonte all'orario fisso richiesto (impossibile)",
             })
             continue
-        if _overlaps(start, end, busy):
+
+        # (c) l'inizio non puo' cadere DENTRO uno slot fisso gia' assegnato (FIFO)
+        if any(b_start <= start < b_end for b_start, b_end in busy):
             conflicts.append({
                 "name": t["name"],
                 "reason": "orario fisso in conflitto con un altro fisso (FIFO: rifiutato)",
             })
             continue
+
+        # (d) fin dove si puo' arrivare stanotte, e cosa ci ferma: la fine della notte,
+        #     il tramonto del target, o il prossimo orario fisso gia' assegnato
+        limit, cause = night_end, "della fine della notte"
+        horizon_end = above_horizon_until(t["ra"], t["dec"], start, night_end,
+                                          floor=horizon_limit)
+        if horizon_end < limit:
+            limit, cause = horizon_end, "del tramonto del target"
+        for b_start, _ in busy:
+            if start < b_start < limit:
+                limit, cause = b_start, "di un altro orario fisso gia' assegnato (FIFO)"
+
+        frames_fit = max(int((limit - frames_start).sec / 60 // per_frame_min), 0)
+
+        if frames_fit >= wanted:
+            frames_now, remaining = t["frames"], {}
+        elif not t.get("splittable"):
+            # non spezzabile: o ci sta tutto, o si rifiuta dicendo quanto ci starebbe
+            conflicts.append({
+                "name": t["name"],
+                "reason": (f"non c'e' abbastanza tempo prima di {cause}: all'orario fisso "
+                           f"richiesto ci starebbero solo {frames_fit} pose delle {wanted}"),
+            })
+            continue
+        elif frames_fit < 1:
+            unplaced.append({"name": t["name"], "remaining_frames": t["frames"],
+                             "reason": "nessuno spazio all'orario fisso stanotte (rimandato)"})
+            continue
+        else:
+            # spezzabile: stanotte quante ne entrano, il resto alla stessa ora la notte dopo
+            frames_now, remaining = take_frames(t["frames"], frames_fit, config.FRAMES_PER_CYCLE)
+
+        end = frames_start + total_frames(frames_now) * per_frame_min * u.min
         scheduled.append({"id": t.get("id"), "name": t["name"], "start": start,
                           "frames_start": frames_start, "end": end,
-                          "duration_minutes": observation_duration_minutes(t),
-                          "frames": t["frames"], "fixed": True, "partial": False})
+                          "duration_minutes": overhead + total_frames(frames_now) * per_frame_min,
+                          "frames": frames_now, "fixed": True, "partial": bool(remaining)})
         busy.append((start, end))
+        if remaining:
+            unplaced.append({
+                "name": t["name"], "remaining_frames": remaining,
+                "reason": (f"split: restano {total_frames(remaining)} pose, "
+                           f"alla stessa ora nelle prossime notti"),
+            })
 
     # --- Fase 2: liberi, per priorita', nei buchi ---
     for t in rank_by_visibility(free, date, min_altitude=min_altitude):
@@ -282,6 +330,24 @@ def build_schedule(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE, hori
     }
 
 
+def anchor_to_night(fixed_start, window):
+    """
+    Porta l'ORA DEL GIORNO di un orario fisso dentro la finestra di una notte.
+    Della richiesta conta l'ora (es. 23:00 UTC): la data dice solo da quando in poi
+    l'osservazione puo' partire, mentre l'ora si ripete su ogni notte utile — e' cosi'
+    che un fisso spezzato riparte sempre allo stesso orario le notti successive.
+    Ritorna il Time di quella notte, o None se la notte non contiene quell'ora.
+    """
+    if window is None:
+        return None
+    night_start, night_end = window
+    clock = Time(fixed_start).iso[11:]                      # "HH:MM:SS.sss"
+    moment = Time(f"{night_start.iso[:10]} {clock}")
+    if moment < night_start:
+        moment = moment + 1 * u.day    # le ore dopo mezzanotte sono del giorno seguente
+    return moment if night_start <= moment <= night_end else None
+
+
 def plan_campaign(targets, start_date, nights=config.NIGHTS_HORIZON,
                   min_altitude=config.DEFAULT_MIN_ALTITUDE, horizon_limit=config.HORIZON_LIMIT):
     """
@@ -290,47 +356,52 @@ def plan_campaign(targets, start_date, nights=config.NIGHTS_HORIZON,
     sui target ancora da fare: chi entra e' schedulato quella notte e non si ripropone;
     chi resta (unplaced) viene ritentato la notte successiva.
 
-    Gli orari fissi valgono solo per la loro notte: ogni fisso viene assegnato alla
-    notte la cui finestra contiene il suo 'fixed_start' (se nessuna, e' fuori campagna).
+    Gli ORARI FISSI sono ancorati per ORA DEL GIORNO (vedi anchor_to_night): la data
+    della richiesta vale come "non prima di", l'ora invece si ripete. Un fisso
+    splittabile che non finisce in una notte riprende ALLA STESSA ORA quella dopo,
+    mantenendo la sua precedenza FIFO (era arrivato prima delle richieste successive).
+    Un fisso non splittabile che viene rifiutato non viene ritentato.
 
     Ritorna:
       - by_night          : lista di {date, schedule} (output di build_schedule per notte)
       - free_unscheduled  : target liberi mai piazzati entro l'orizzonte di 'nights' notti
-      - fixed_unschedulable : orari fissi che cadono fuori dalle notti pianificate
+      - fixed_unschedulable : orari fissi rimasti incompiuti a fine campagna
     """
-    fixed = [t for t in targets if t.get("fixed_start")]
     free = [t for t in targets if not t.get("fixed_start")]
+    # i fissi restano nell'ordine di arrivo (FIFO): le continuazioni conservano cosi'
+    # la precedenza sulle richieste inserite dopo di loro
+    pending_fixed = [dict(t) for t in targets if t.get("fixed_start")]
+    ever_placed = set()
 
     dates = [start_date + i * u.day for i in range(nights)]
     windows = [night_window(d) for d in dates]
 
-    # smisto ogni orario fisso alla notte la cui finestra contiene il suo istante
-    fixed_by_night = {i: [] for i in range(nights)}
-    fixed_unschedulable = []
-    for t in fixed:
-        ts = Time(t["fixed_start"])
-        night_i = next((i for i, w in enumerate(windows)
-                        if w is not None and w[0] <= ts <= w[1]), None)
-        if night_i is None:
-            fixed_unschedulable.append({"name": t["name"],
-                                        "reason": "orario fisso fuori dalle notti pianificate"})
-        else:
-            fixed_by_night[night_i].append(t)
-
     by_night = []
     for i, date in enumerate(dates):
-        tonight = fixed_by_night[i] + free
-        schedule = build_schedule(tonight, date,
+        # quali fissi tocca stanotte: quelli la cui ora cade in questa notte e la cui
+        # data di partenza e' gia' arrivata
+        tonight_fixed = []
+        for t in pending_fixed:
+            moment = anchor_to_night(t["fixed_start"], windows[i])
+            if moment is None or moment < Time(t["fixed_start"]) - 1 * u.s:
+                continue
+            tonight_fixed.append({**t, "fixed_start": moment.iso})
+        tonight_names = {t["name"] for t in tonight_fixed}
+
+        schedule = build_schedule(tonight_fixed + free, date,
                                   min_altitude=min_altitude, horizon_limit=horizon_limit)
         by_night.append({"date": date, "schedule": schedule})
 
-        # aggiorno il giro dei target 'liberi' per la notte successiva:
-        # - completati (piazzati NON parziali) -> escono
-        # - split parziali -> restano con le pose rimanenti (remaining_frames)
-        # - non piazzati -> restano invariati e riprovano
+        # com'e' andata stanotte: chi ha finito, chi ha pose rimaste
         completed = {e["name"] for e in schedule["scheduled"] if not e.get("partial")}
         remaining_frames = {u["name"]: u["remaining_frames"]
                             for u in schedule["unplaced"] if "remaining_frames" in u}
+        ever_placed |= {e["name"] for e in schedule["scheduled"]}
+
+        # giro dei LIBERI per la notte successiva:
+        # - completati (piazzati NON parziali) -> escono
+        # - split parziali -> restano con le pose rimanenti (remaining_frames)
+        # - non piazzati -> restano invariati e riprovano
         next_free = []
         for t in free:
             if t["name"] in remaining_frames:
@@ -339,9 +410,30 @@ def plan_campaign(targets, start_date, nights=config.NIGHTS_HORIZON,
                 next_free.append(t)
         free = next_free
 
-        # mi fermo se non resta nulla da fare (ne' liberi ne' fissi futuri)
-        if not free and not any(fixed_by_night[j] for j in range(i + 1, nights)):
+        # giro dei FISSI: come sopra, ma chi non e' splittabile non si ritenta
+        # (e' stato rifiutato definitivamente, il motivo e' gia' in 'conflicts')
+        next_fixed = []
+        for t in pending_fixed:
+            if t["name"] not in tonight_names:
+                next_fixed.append(t)                       # stanotte non era di turno
+            elif t["name"] in remaining_frames:
+                next_fixed.append({**t, "frames": remaining_frames[t["name"]]})
+            elif t["name"] in completed:
+                pass                                       # finito
+            elif t.get("splittable"):
+                next_fixed.append(t)                       # niente spazio: riprova
+        pending_fixed = next_fixed
+
+        if not free and not pending_fixed:   # non resta piu' nulla da fare
             break
+
+    fixed_unschedulable = [
+        {"name": t["name"], "remaining_frames": t["frames"],
+         "reason": ("pose rimaste oltre l'orizzonte di pianificazione"
+                    if t["name"] in ever_placed
+                    else "orario fisso fuori dalle notti pianificate")}
+        for t in pending_fixed
+    ]
 
     return {
         "by_night": by_night,
