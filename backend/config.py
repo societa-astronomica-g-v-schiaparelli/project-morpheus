@@ -17,6 +17,9 @@ FRAMES_PER_CYCLE = 3       # pose per filtro prima di ruotare (rotazione filtri)
 # --- Feedback / rete ---
 WS_RECV_TIMEOUT = 5             # s, attesa massima per un singolo messaggio da INDIGO
 SEQUENCE_TIMEOUT_MARGIN = 300   # s, margine sul timeout di una sequenza (oltre la durata prevista)
+LIVE_MIN_INTERVAL = 1.0         # s, ogni quanto al massimo morpheus riscrive lo stato live
+LIVE_POLL_INTERVAL = 1.0        # s, ogni quanto l'SSE rilegge lo stato per il browser
+LIVE_STALE_AFTER = 120          # s, oltre questo silenzio morpheus e' considerato non attivo
 
 # --- Mappe e liste (fornite dai tecnici) ---
 BINNING_TO_MODE = {

@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from api.observation_router import router as obs_router
 from api.scheduler_router import router as sched_router
+from api.live_router import router as live_router
 from db import init_db
 
 
@@ -16,6 +17,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="ASTRA - Project Morpheus", lifespan=lifespan)
 app.include_router(obs_router)
 app.include_router(sched_router)
+app.include_router(live_router)
 
 #   ->  http://<host>:8000/ui/
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"

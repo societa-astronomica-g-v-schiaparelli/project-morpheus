@@ -130,9 +130,45 @@ class ObservationHistory(SQLModel, table=True):
     completed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class LiveStatus(SQLModel, table=True):
+    """
+    Cosa sta facendo morpheus ADESSO: una sola riga (id=1), riscritta in continuazione.
+    E' il ponte fra i due processi — morpheus gira per conto suo e SCRIVE qui, l'app web
+    LEGGE e trasmette al browser via SSE. Il database e' gia' il loro canale comune,
+    quindi non serve inventarne un altro.
+    I campi di progresso ricalcano i nomi degli item di SEQUENCE_STATE di INDIGO, per
+    non dare per buona un'interpretazione non ancora verificata sul telescopio vero.
+    """
+    id: int | None = Field(default=1, primary_key=True)
+    phase: str = "fermo"       # fermo | attesa | meteo | accensione | osservazione | pausa | spegnimento | conclusa
+    message: str = ""          # frase gia' pronta da mostrare all'utente
+    night: str | None = None
+
+    # osservazione in corso (se la fase e' 'osservazione')
+    observation_id: int | None = None
+    target_name: str | None = None
+    slot_start: str | None = None
+    slot_end: str | None = None
+    next_start: str | None = None      # quando parte la prossima (se siamo in pausa)
+
+    # progresso dentro la sequenza, cosi' come arriva da SEQUENCE_STATE
+    step: float | None = None
+    progress: float | None = None
+    progress_total: float | None = None
+    exposure: float | None = None
+    exposure_total: float | None = None
+
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 def init_db():
     """Crea il file e le tabelle se non esistono ancora. Da chiamare all'avvio dell'app."""
     SQLModel.metadata.create_all(engine)
+    # WAL: app web e morpheus usano lo stesso file da due processi diversi. Con il
+    # journal normale chi legge resta bloccato da chi scrive; in WAL no. E' una
+    # proprieta' persistente del file, basta impostarla una volta.
+    with engine.connect() as connection:
+        connection.exec_driver_sql("PRAGMA journal_mode=WAL")
 
 
 def add_observation(data: dict) -> Observation:
@@ -274,6 +310,30 @@ def list_executions(observation_id: int | None = None,
         if night is not None:
             query = query.where(ExecutionRecord.night == night)
         return list(session.exec(query))
+
+
+def set_live_status(**fields):
+    """Aggiorna la riga di stato di morpheus. I campi non passati vengono AZZERATI:
+    lo stato descrive l'istante presente, non la somma di quelli passati (altrimenti
+    resterebbero appesi il target di prima o un progresso vecchio).
+    Passare solo 'phase' e 'message' basta per le fasi che non hanno altro da dire."""
+    with Session(engine) as session:
+        status = session.get(LiveStatus, 1) or LiveStatus(id=1)
+        for name in LiveStatus.model_fields:
+            if name in ("id", "updated_at"):
+                continue
+            setattr(status, name, fields.get(name, LiveStatus.model_fields[name].default))
+        status.updated_at = datetime.now(timezone.utc)
+        session.add(status)
+        session.commit()
+        session.refresh(status)
+        return status
+
+
+def get_live_status() -> LiveStatus | None:
+    """Legge lo stato corrente di morpheus (None se non ha mai scritto nulla)."""
+    with Session(engine) as session:
+        return session.get(LiveStatus, 1)
 
 
 def record_progress(observation_id: int, frames_done: dict[str, int]):

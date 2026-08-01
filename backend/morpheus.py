@@ -16,7 +16,7 @@ import websockets
 
 import config
 from db import (observations_to_schedule, save_plan, list_slots, get_observation,
-                record_progress, log_execution)
+                record_progress, log_execution, set_live_status)
 from services.scheduler import plan_campaign
 from services.astronomy import night_window
 from services.weather import weather_is_favorable
@@ -58,15 +58,44 @@ def next_observing_night(now=None):
     return None, None
 
 
+def _progress_writer(slot):
+    """Costruisce la callback che riversa SEQUENCE_STATE nella riga di stato live.
+    Limita la frequenza di scrittura (LIVE_MIN_INTERVAL): INDIGO puo' aggiornare
+    molto spesso e non serve scrivere sul database a ogni singolo messaggio."""
+    ultimo = [0.0]
+
+    def scrivi(progress):
+        now = asyncio.get_event_loop().time()
+        if now - ultimo[0] < config.LIVE_MIN_INTERVAL:
+            return
+        ultimo[0] = now
+        set_live_status(
+            phase="osservazione", night=slot.night,
+            message=f"Ripresa di {slot.target_name} in corso",
+            observation_id=slot.observation_id, target_name=slot.target_name,
+            slot_start=slot.start, slot_end=slot.end,
+            step=progress.get("STEP"),
+            progress=progress.get("PROGRESS"), progress_total=progress.get("PROGRESS_TOTAL"),
+            exposure=progress.get("EXPOSURE"), exposure_total=progress.get("EXPOSURE_TOTAL"),
+        )
+
+    return scrivi
+
+
 async def run_night(date_str):
     """Esegue UNA nottata: meteo -> congela il piano -> accende -> per ogni slot
-    aspetta l'orario e invia lo script -> spegne."""
+    aspetta l'orario e invia lo script -> spegne.
+    Lungo tutto il percorso aggiorna la riga di stato live, che l'app web trasmette
+    al browser via SSE (i due processi si parlano attraverso il database)."""
     print(f"[morpheus] --- nottata {date_str} ---")
 
     # 1) il meteo vince su tutto: se avverso, si salta la notte
+    set_live_status(phase="meteo", night=date_str, message="Controllo del meteo")
     weather = weather_is_favorable(date_str)
     if not weather["favorable"]:
         print(f"[morpheus] meteo avverso ({weather['reason']}) -> nottata annullata")
+        set_live_status(phase="conclusa", night=date_str,
+                        message=f"Nottata annullata per meteo avverso: {weather['reason']}")
         return
 
     # 2) congela il piano della serata e prendi gli slot di stanotte
@@ -74,28 +103,41 @@ async def run_night(date_str):
     slots = list_slots(date_str)
     if not slots:
         print("[morpheus] nessuno slot da eseguire stanotte")
+        set_live_status(phase="conclusa", night=date_str,
+                        message="Nessuna osservazione in programma stanotte")
         return
     print(f"[morpheus] {len(slots)} slot in programma")
 
     # 3) una connessione per tutta la notte: accendi e avvia
     #    (il preludio e' incluso in ogni script inviato, non piu' seminato a parte)
+    set_live_status(phase="accensione", night=date_str,
+                    message="Accensione della strumentazione")
     async with websockets.connect(config.INDIGO_WS_URL, open_timeout=5, max_size=None) as ws:
         await dispatcher.send_startup(ws)   # carica il preset (load_config) + accende
 
         # 4) invia ogni osservazione al suo orario e aspetta il suo esito
         for slot in slots:
+            set_live_status(phase="pausa", night=date_str, next_start=slot.start,
+                            target_name=slot.target_name,
+                            message=f"In attesa: {slot.target_name} alle {slot.start[11:16]} UTC")
             await sleep_until(slot.start)
             obs = get_observation(slot.observation_id)
             if obs is None:
                 continue
             print(f"[morpheus] {slot.start[11:16]} -> {slot.target_name} ({slot.frames} pose)")
+            set_live_status(phase="osservazione", night=date_str,
+                            message=f"Preparazione di {slot.target_name}",
+                            observation_id=slot.observation_id, target_name=slot.target_name,
+                            slot_start=slot.start, slot_end=slot.end)
             await dispatcher.send_observation(ws, obs)
 
             # FEEDBACK: aspetta che la sequenza finisca, con timeout generoso legato
             # alla durata prevista dello slot; registra i progressi solo se completata.
+            # La callback riversa gli aggiornamenti nello stato live, posa per posa.
             duration = (Time(slot.end) - Time(slot.start)).sec
             outcome, _ = await dispatcher.await_sequence(
-                ws, max_seconds=duration * 1.5 + config.SEQUENCE_TIMEOUT_MARGIN)
+                ws, max_seconds=duration * 1.5 + config.SEQUENCE_TIMEOUT_MARGIN,
+                on_progress=_progress_writer(slot))
             log_execution(slot, outcome)   # diario di bordo: com'e' andata, sempre
             if outcome == "ok":
                 record_progress(slot.observation_id, slot.frames)
@@ -104,9 +146,12 @@ async def run_night(date_str):
                 print(f"[morpheus]   sequenza {outcome}: pose NON registrate (verra' ripianificata)")
 
         # 5) fine notte: metti in sicurezza e spegni
+        set_live_status(phase="spegnimento", night=date_str,
+                        message="Messa in sicurezza e spegnimento")
         await dispatcher.send_shutdown(ws)
 
     print(f"[morpheus] nottata {date_str} conclusa")
+    set_live_status(phase="conclusa", night=date_str, message="Nottata conclusa")
 
 
 async def main_loop():
@@ -118,11 +163,16 @@ async def main_loop():
             print("[morpheus] nessuna notte trovata nell'orizzonte, mi fermo")
             return
         print(f"[morpheus] prossima notte: {date_str} | sveglia: {wake.iso[:16]} UTC")
+        set_live_status(phase="attesa", night=date_str, next_start=wake.iso,
+                        message=f"In attesa della notte del {date_str} "
+                                f"(sveglia alle {wake.iso[11:16]} UTC)")
         await sleep_until(wake.iso)
         try:
             await run_night(date_str)
         except Exception as e:
             print(f"[morpheus] errore nella nottata {date_str}: {e}")
+            set_live_status(phase="fermo", night=date_str,
+                            message=f"Errore nella nottata {date_str}: {e}")
 
 
 if __name__ == "__main__":

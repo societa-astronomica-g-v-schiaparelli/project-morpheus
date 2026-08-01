@@ -36,7 +36,7 @@ async def send_shutdown(ws):
     """Mette in sicurezza e spegne a fine nottata (park + cooler off)."""
     await ws.send(_full_script(generator.generate_shutdown()))
 
-async def await_sequence(ws, max_seconds):
+async def await_sequence(ws, max_seconds, on_progress=None):
     """
     FEEDBACK: dopo aver avviato una sequenza, ascolta i messaggi di INDIGO finche'
     non termina. Ritorna (esito, progressi):
@@ -45,6 +45,11 @@ async def await_sequence(ws, max_seconds):
     Legge di continuo -> stato reale + buffer sempre svuotato.
     Assunzione: l'invio appena fatto porta SEQUENCE_STATE a Busy, quindi il primo
     stato terminale che vediamo appartiene a questa sequenza.
+
+    'on_progress', se passato, viene chiamato a OGNI aggiornamento di SEQUENCE_STATE
+    con il dizionario di quel momento: e' cosi' che il feedback diventa "vivo" invece
+    di arrivare solo alla fine. Se solleva un'eccezione la sequenza NON si ferma:
+    un problema nel mostrare lo stato non deve far fallire un'osservazione.
     """
     deadline = asyncio.get_event_loop().time() + max_seconds
     progress = {}
@@ -62,6 +67,11 @@ async def await_sequence(ws, max_seconds):
                 continue
             state = v.get("state")
             progress = {i["name"]: i["value"] for i in v.get("items", [])}
+            if on_progress is not None:
+                try:
+                    on_progress(progress)
+                except Exception as e:
+                    print(f"[dispatcher] avviso: on_progress ha fallito ({e})")
             if state == "Ok":
                 return "ok", progress
             if state == "Alert":

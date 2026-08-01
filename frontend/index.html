@@ -21,6 +21,20 @@
     .tag.fisso { background: #6a4bb2; }
     .tag.split { background: #b26a00; }
     .avviso { color: var(--pico-del-color); }
+    /* pannello del feedback in tempo reale */
+    #live { margin-bottom: 1.5rem; padding: .75rem 1rem; border-radius: .5rem;
+            background: var(--pico-card-background-color);
+            border-left: .35rem solid var(--pico-muted-border-color); }
+    #live.attivo { border-left-color: #2e7d32; }
+    #live .fase { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em;
+                  color: var(--pico-muted-color); }
+    #live .frase { font-size: 1.05rem; margin: .15rem 0; }
+    #live .dettaglio { font-size: .85rem; color: var(--pico-muted-color); }
+    #live progress { margin: .4rem 0 0; }
+    .pulsante-vivo { display: inline-block; width: .55rem; height: .55rem; margin-right: .4rem;
+                     border-radius: 50%; background: var(--pico-muted-color); }
+    #live.attivo .pulsante-vivo { background: #2e7d32; animation: battito 1.6s infinite; }
+    @keyframes battito { 50% { opacity: .25; } }
   </style>
 </head>
 <body>
@@ -29,6 +43,14 @@
       <h1>Morpheus</h1>
       <p>Pannello osservatorio</p>
     </hgroup>
+
+    <!-- STATO IN TEMPO REALE: sempre visibile, alimentato via SSE -->
+    <div id="live">
+      <div class="fase"><span class="pulsante-vivo"></span><span id="live-fase">—</span></div>
+      <div class="frase" id="live-frase">Collegamento allo stato di morpheus…</div>
+      <div class="dettaglio" id="live-dettaglio"></div>
+      <progress id="live-barra" hidden></progress>
+    </div>
 
     <!-- SCHEDE: navigazione tra le viste -->
     <nav class="schede">
@@ -324,6 +346,50 @@
     }
 
     // avvio
+    // ---- stato in tempo reale (SSE) ----
+    // EventSource tiene aperta la connessione a /live/stream e si riconnette da solo
+    // se cade: non serve gestire i tentativi a mano.
+    function avviaLive() {
+      const box = document.getElementById("live");
+      const flusso = new EventSource("/api/v1/live/stream");
+
+      flusso.onmessage = (evento) => {
+        const s = JSON.parse(evento.data);
+        box.classList.toggle("attivo", !!s.active);
+        document.getElementById("live-fase").textContent = s.phase || "—";
+        document.getElementById("live-frase").textContent = s.message || "—";
+
+        // dettaglio: orario dello slot in corso, o quando parte il prossimo
+        const pezzi = [];
+        if (s.night) pezzi.push(`notte ${s.night}`);
+        if (s.slot_start) pezzi.push(`slot ${ora(s.slot_start)}–${ora(s.slot_end)}`);
+        else if (s.next_start) pezzi.push(`prossimo alle ${ora(s.next_start)}`);
+        if (s.exposure != null && s.exposure_total != null)
+          pezzi.push(`posa ${s.exposure}/${s.exposure_total}s`);
+        document.getElementById("live-dettaglio").textContent = pezzi.join(" · ");
+
+        // barra di avanzamento, solo se INDIGO ci sta dando dei numeri
+        const barra = document.getElementById("live-barra");
+        if (s.progress != null && s.progress_total) {
+          barra.max = s.progress_total;
+          barra.value = s.progress;
+          barra.hidden = false;
+        } else {
+          barra.hidden = true;
+        }
+
+        // quando una nottata finisce, le altre viste sono da rileggere
+        if (s.phase === "conclusa") carica();
+      };
+
+      flusso.onerror = () => {
+        box.classList.remove("attivo");
+        document.getElementById("live-frase").textContent =
+          "Connessione allo stato interrotta, riprovo…";
+      };
+    }
+
+    avviaLive();
     document.querySelector('#pianifica input[name="date"]').value =
       new Date().toISOString().slice(0, 10);   // oggi come default
     caricaConfig();
