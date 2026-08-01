@@ -34,6 +34,7 @@
     <nav class="schede">
       <button id="tab-osservazioni" onclick="mostra('osservazioni')">Osservazioni</button>
       <button id="tab-piano" class="secondary" onclick="mostra('piano')">Piano</button>
+      <button id="tab-storico" class="secondary" onclick="mostra('storico')">Storico</button>
     </nav>
 
     <!-- ================= VISTA: OSSERVAZIONI ================= -->
@@ -110,6 +111,12 @@
       </form>
       <div id="piano-risultato"></div>
     </section>
+
+    <!-- ================= VISTA: STORICO ================= -->
+    <section id="view-storico" hidden>
+      <p>Osservazioni completate definitivamente, con le notti in cui sono state riprese.</p>
+      <div id="storico-risultato"></div>
+    </section>
   </main>
 
   <script>
@@ -119,9 +126,44 @@
 
     // cambia vista (scheda) e aggiorna l'evidenza dei bottoni
     function mostra(nome) {
-      for (const v of ["osservazioni", "piano"]) {
+      for (const v of ["osservazioni", "piano", "storico"]) {
         document.getElementById("view-" + v).hidden = (v !== nome);
         document.getElementById("tab-" + v).className = (v === nome) ? "" : "secondary";
+      }
+      if (nome === "storico") caricaStorico();   // sempre fresco all'apertura
+    }
+
+    // ---- vista storico ----
+    async function caricaStorico() {
+      const storico = await (await fetch("/api/v1/history")).json();
+      const cont = document.getElementById("storico-risultato");
+      if (storico.length === 0) {
+        cont.innerHTML = "<p>Nessuna osservazione completata finora.</p>";
+        return;
+      }
+      cont.innerHTML = "";
+      for (const o of storico) {
+        const art = document.createElement("article");
+        let html = `<header><strong>${o.target_name}</strong> · ${tot(o.frames)} pose da ${o.exposition}s
+                    · completata il ${(o.completed_at || "").slice(0, 10)}</header>`;
+        if (o.nights.length === 0) {
+          html += "<small>nessuna notte registrata nel diario di bordo</small>";
+        } else {
+          html += "<table><tbody>";
+          for (const n of o.nights) {
+            const esito = n.outcome === "ok"
+              ? '<span class="stato completed">ok</span>'
+              : `<span class="stato in_progress">${n.outcome}</span>`;
+            html += `<tr>
+              <td>${n.night}</td>
+              <td>${ora(n.start)}–${ora(n.end)}</td>
+              <td>${tot(n.frames)} pose</td>
+              <td>${esito}</td></tr>`;
+          }
+          html += "</tbody></table>";
+        }
+        art.innerHTML = html;
+        cont.appendChild(art);
       }
     }
 

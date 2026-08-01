@@ -15,7 +15,8 @@ import astropy.units as u
 import websockets
 
 import config
-from db import observations_to_schedule, save_plan, list_slots, get_observation, record_progress
+from db import (observations_to_schedule, save_plan, list_slots, get_observation,
+                record_progress, log_execution)
 from services.scheduler import plan_campaign
 from services.astronomy import night_window
 from services.weather import weather_is_favorable
@@ -95,6 +96,7 @@ async def run_night(date_str):
             duration = (Time(slot.end) - Time(slot.start)).sec
             outcome, _ = await dispatcher.await_sequence(
                 ws, max_seconds=duration * 1.5 + config.SEQUENCE_TIMEOUT_MARGIN)
+            log_execution(slot, outcome)   # diario di bordo: com'e' andata, sempre
             if outcome == "ok":
                 record_progress(slot.observation_id, slot.frames)
                 print(f"[morpheus]   completata: +{slot.frames} pose registrate")

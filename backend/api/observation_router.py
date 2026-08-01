@@ -2,7 +2,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel, field_validator, model_validator
 import config
 from services.dispatcher import dispatch_observation_now
-from db import add_observation, list_observations, get_observation
+from db import (add_observation, list_observations, get_observation,
+                list_history, list_executions)
 from utils.coordinates import  sexagesimal_to_decimal
 
 router = APIRouter(prefix="/api/v1")
@@ -89,6 +90,23 @@ async def schedule_observation(request: ObservationRequest):
 @router.get("/observations")
 async def get_observations():
     return list_observations()
+
+@router.get("/history")
+async def get_history():
+    """Storico delle osservazioni completate definitivamente, ciascuna col dettaglio
+    delle notti in cui e' stata ripresa (dal diario di bordo)."""
+    return [
+        {**record.model_dump(),
+         "nights": list_executions(observation_id=record.observation_id)}
+        for record in list_history()
+    ]
+
+@router.get("/executions")
+async def get_executions(night: str | None = None):
+    """Il diario di bordo grezzo: cosa e' stato eseguito e com'e' andato (ok/alert/
+    timeout), eventualmente di una sola notte. Comprende anche le osservazioni non
+    ancora completate."""
+    return list_executions(night=night)
 
 @router.get("/config")
 async def get_config():
