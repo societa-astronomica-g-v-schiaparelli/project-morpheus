@@ -22,7 +22,8 @@ def _serialize_schedule(s):
             {
                 "observation_id": e.get("id"),
                 "name": e["name"],
-                "start": _iso(e["start"]),
+                "start": _iso(e["start"]),              # inizio slot = inizio preparazione
+                "frames_start": _iso(e["frames_start"]),  # quando partono davvero le pose
                 "end": _iso(e["end"]),
                 "duration_minutes": round(e["duration_minutes"], 1),
                 "frames": e.get("frames"),

@@ -11,6 +11,7 @@ HORIZON_LIMIT = 0            # gradi, limite fisico dell'orizzonte (anche per i 
 NIGHTS_HORIZON = 7          # su quante notti pianificare
 WAKE_BEFORE_MIN = 30       # min, quanto prima dell'inizio notte si sveglia morpheus
 OVERHEAD_MINUTES = 10      # min, overhead per slot PRIMA delle pose (slew/fuoco/guida)
+OVERHEAD_MINUTES_TEST = 1  # min, overhead usato quando TEST_MODE e' attivo (la preparazione e' piu' corta)
 FRAMES_PER_CYCLE = 3       # pose per filtro prima di ruotare (rotazione filtri)
 
 # --- Feedback / rete ---

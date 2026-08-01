@@ -250,7 +250,7 @@
                       : (e.partial ? '<span class="tag split">split</span>'
                                    : '<span class="tag">libero</span>');
             html += `<tr>
-              <td>${ora(e.start)}–${ora(e.end)}</td>
+              <td><small>${ora(e.start)} prep</small><br>${ora(e.frames_start)}–${ora(e.end)} pose</td>
               <td><strong>${e.name}</strong></td>
               <td>${tot(e.frames)} pose</td>
               <td>${tag}</td></tr>`;

@@ -45,13 +45,27 @@ def total_frames(frames):
     return sum(frames.values())
 
 
+def overhead_minutes():
+    """Minuti di preparazione da riservare PRIMA delle pose di ogni slot: slew, attesa
+    della cupola, precise_goto, messa a fuoco e avvio della guida. In TEST_MODE lo
+    script salta le operazioni lente, quindi la preparazione e' molto piu' corta.
+    Letto a ogni chiamata (non a import) cosi' cambiare TEST_MODE ha effetto subito."""
+    return config.OVERHEAD_MINUTES_TEST if config.TEST_MODE else config.OVERHEAD_MINUTES
+
+
+def frames_duration_minutes(target):
+    """Durata delle sole POSE in minuti: pose TOTALI (somma su tutti i filtri) per esposizione."""
+    return total_frames(target["frames"]) * target["exposition"] / 60
+
+
 def observation_duration_minutes(target):
     """
-    Durata di un'osservazione in minuti: pose TOTALI (somma su tutti i filtri) per esposizione.
+    Durata TOTALE di uno slot in minuti: overhead di preparazione + pose.
     'target' ha 'frames' ({filtro: n_pose}) ed 'exposition' (secondi per posa).
-    (In futuro qui si aggiungera' l'overhead: download, messa a fuoco, cambio filtro.)
+    Lo slot occupa il telescopio dall'inizio della preparazione: e' questa la durata
+    che conta per il piazzamento sulla timeline.
     """
-    return total_frames(target["frames"]) * target["exposition"] / 60
+    return overhead_minutes() + frames_duration_minutes(target)
 
 
 def take_frames(frames, n, cycle):
@@ -147,6 +161,11 @@ def build_schedule(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE, hori
       2) LIBERI ordinati per priorita' (rank_by_visibility), che riempiono i buchi
          rimasti senza invadere gli slot fissi.
 
+    OGNI slot riserva 'overhead_minutes()' di preparazione PRIMA delle pose (slew,
+    cupola, fuoco, guida). Quindi lo slot occupa [start, end] ma le pose partono a
+    'frames_start' = start + overhead. Per un orario FISSO l'istante scelto dall'utente
+    e' quando partono le POSE: lo slot arretra di conseguenza a 'fixed_start - overhead'.
+
     'min_altitude' (soft) e' la soglia di comodita', usata SOLO per i liberi.
     'horizon_limit' (hard) e' il limite fisico dell'orizzonte, usato ANCHE per i fissi.
     Ogni target ha 'frames' ed 'exposition' per la durata; tutti anche 'ra'/'dec'.
@@ -167,10 +186,25 @@ def build_schedule(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE, hori
     conflicts = []
 
     # --- Fase 1: orari fissi, in ordine di arrivo (FIFO) ---
+    overhead = overhead_minutes()
     for t in fixed:
-        start = Time(t["fixed_start"])
-        end = start + observation_duration_minutes(t) * u.min
+        # l'orario chiesto dall'utente e' quando partono le POSE: lo slot arretra
+        # per lasciare spazio alla preparazione
+        frames_start = Time(t["fixed_start"])
+        start = frames_start - overhead * u.min
+        end = frames_start + frames_duration_minutes(t) * u.min
+        # la preparazione puo' anche avvenire al crepuscolo, ma non prima che la notte
+        # (finestra osservativa) sia cominciata: altrimenti lo slot non ci sta davvero
+        if start < night_start:
+            late_by = round((night_start - start).sec / 60)
+            conflicts.append({
+                "name": t["name"],
+                "reason": (f"orario fisso troppo presto: servono {overhead} min di preparazione "
+                           f"prima delle pose, sposta l'inizio di almeno {late_by} min"),
+            })
+            continue
         # la fisica vince sull'utente: il target deve stare sopra l'orizzonte nello slot
+        # (anche durante la preparazione il telescopio punta gia' il target)
         if not stays_above_horizon(t["ra"], t["dec"], start, end, floor=horizon_limit):
             conflicts.append({
                 "name": t["name"],
@@ -183,7 +217,8 @@ def build_schedule(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE, hori
                 "reason": "orario fisso in conflitto con un altro fisso (FIFO: rifiutato)",
             })
             continue
-        scheduled.append({"id": t.get("id"), "name": t["name"], "start": start, "end": end,
+        scheduled.append({"id": t.get("id"), "name": t["name"], "start": start,
+                          "frames_start": frames_start, "end": end,
                           "duration_minutes": observation_duration_minutes(t),
                           "frames": t["frames"], "fixed": True, "partial": False})
         busy.append((start, end))
@@ -193,9 +228,11 @@ def build_schedule(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE, hori
         per_frame_min = t["exposition"] / 60
 
         if t.get("splittable"):
-            # split: piazzo quante pose (in rotazione) entrano nel primo buco; le altre dopo
+            # split: piazzo quante pose (in rotazione) entrano nel primo buco; le altre dopo.
+            # Anche una ripresa parziale costa la sua preparazione: le pose possibili si
+            # contano sul tempo che AVANZA dopo l'overhead.
             start, avail = first_gap(t["window_start"], t["window_end"], busy)
-            frames_fit = int(avail // per_frame_min) if start is not None else 0
+            frames_fit = int((avail - overhead) // per_frame_min) if start is not None else 0
             if frames_fit < 1:
                 unplaced.append({"name": t["name"], "remaining_frames": t["frames"],
                                  "reason": "nessun buco stanotte (split rimandato)"})
@@ -211,7 +248,8 @@ def build_schedule(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE, hori
                                  "reason": "nessun buco libero nella sua finestra stanotte"})
                 continue
 
-        end = start + total_frames(frames_now) * per_frame_min * u.min
+        frames_start = start + overhead * u.min      # le pose partono dopo la preparazione
+        end = frames_start + total_frames(frames_now) * per_frame_min * u.min
 
         # vincolo Luna (opzionale, solo x target liberi): il target deve restare abbastanza
         # lontano dalla Luna per tutta la durata dello slot, altrimenti -> altra notte
@@ -225,8 +263,9 @@ def build_schedule(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE, hori
                                  "reason": "troppo vicino alla Luna, spostato ad altra notte"})
                 continue
 
-        scheduled.append({"id": t.get("id"), "name": t["name"], "start": start, "end": end,
-                          "duration_minutes": total_frames(frames_now) * per_frame_min,
+        scheduled.append({"id": t.get("id"), "name": t["name"], "start": start,
+                          "frames_start": frames_start, "end": end,
+                          "duration_minutes": overhead + total_frames(frames_now) * per_frame_min,
                           "frames": frames_now, "fixed": False, "partial": bool(remaining)})
         busy.append((start, end))
         if remaining:
