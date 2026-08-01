@@ -23,7 +23,7 @@ async def send_observation(ws, obs):
     """Genera lo script per UNA osservazione (preludio incluso) e lo invia a INDIGO."""
     body = generator.generate_observation(
         target_name=obs.target_name, ra=obs.ra, dec=obs.dec,
-        frames=obs.frames, exposition=obs.exposition, filters=obs.filters,
+        frames=obs.frames, exposition=obs.exposition,
         binning=obs.binning, guide=obs.guide, focus=obs.focus, sequential=obs.sequential,
     )
     await ws.send(_full_script(body))

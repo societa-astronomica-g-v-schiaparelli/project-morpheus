@@ -19,10 +19,9 @@ class Observation(SQLModel, table=True):
     target_name: str
     ra: float
     dec: float
-    frames: int
+    frames: dict[str, int] = Field(sa_column=Column(JSON))  # {filtro: n_pose}, es. {"L":30,"R":30}
     exposition: float
-    filters: list[str] = Field(sa_column=Column(JSON))  # lista -> salvata come JSON
-    binning: str = "BIN1X1"                              # tradotto in modalita' camera (BINNING_TO_MODE)
+    binning: str = "BIN1X1"                                  # tradotto in modalita' camera (BINNING_TO_MODE)
     guide: bool = True
     focus: bool = True
     sequential: bool = False
@@ -36,17 +35,22 @@ class Observation(SQLModel, table=True):
 
     # --- stato che deve PERSISTERE ---
     status: str = "pending"          # pending | in_progress | completed | cancelled
-    frames_done: int = 0             # pose gia' scattate (per split/rollover multi-notte)
+    frames_done: dict[str, int] = Field(default_factory=dict, sa_column=Column(JSON))  # {filtro: pose fatte}
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)  # per l'ordine FIFO
     )
 
+    def remaining_frames(self) -> dict[str, int]:
+        """Pose che RESTANO da fare, per filtro (frames - frames_done, solo se > 0)."""
+        return {f: n - self.frames_done.get(f, 0)
+                for f, n in self.frames.items() if n - self.frames_done.get(f, 0) > 0}
+
     def to_target(self):
         """Traduce l'osservazione nel dict che si aspetta lo scheduler (target_name -> name),
-        includendo solo i campi di scheduling effettivamente impostati. Considera le pose
-        gia' fatte: allo scheduler passa quante ne RESTANO (frames - frames_done)."""
+        includendo solo i campi di scheduling effettivamente impostati. Allo scheduler passa
+        quante pose RESTANO per filtro."""
         target = {"id": self.id, "name": self.target_name, "ra": self.ra, "dec": self.dec,
-                  "frames": self.frames - self.frames_done, "exposition": self.exposition}
+                  "frames": self.remaining_frames(), "exposition": self.exposition}
         if self.fixed_start:
             target["fixed_start"] = self.fixed_start
         if self.min_altitude is not None:
@@ -71,7 +75,7 @@ class ScheduledSlot(SQLModel, table=True):
     night: str            # giorno della sera, es. "2026-07-19"
     start: str            # ISO UTC
     end: str
-    frames: int
+    frames: dict[str, int] = Field(sa_column=Column(JSON))  # {filtro: n_pose} di questo slot
     partial: bool = False
     fixed: bool = False
 
@@ -132,7 +136,7 @@ def save_plan(plan: dict):
                     night=night_str,
                     start=e["start"].iso,
                     end=e["end"].iso,
-                    frames=e.get("frames") or 0,
+                    frames=e.get("frames") or {},
                     partial=e.get("partial", False),
                     fixed=e.get("fixed", False),
                 ))
@@ -160,14 +164,17 @@ def cancel_night(night: str) -> int:
         return len(slots)
 
 
-def record_progress(observation_id: int, frames_done: int):
-    """Registra 'frames_done' pose scattate per un'osservazione (le SOMMA a quelle gia'
-    fatte) e aggiorna lo stato: 'completed' se ha finito, altrimenti 'in_progress'.
+def record_progress(observation_id: int, frames_done: dict[str, int]):
+    """Registra le pose scattate (dict {filtro: n}) SOMMANDOLE a quelle gia' fatte, e
+    aggiorna lo stato: 'completed' se non resta nulla, altrimenti 'in_progress'.
     Mantiene lo stato che serve al multi-notte."""
     with Session(engine) as session:
         obs = session.get(Observation, observation_id)
-        obs.frames_done += frames_done
-        obs.status = "completed" if obs.frames_done >= obs.frames else "in_progress"
+        done = dict(obs.frames_done)   # nuova copia: i JSON vanno riassegnati, non mutati in place
+        for f, n in frames_done.items():
+            done[f] = done.get(f, 0) + n
+        obs.frames_done = done
+        obs.status = "completed" if not obs.remaining_frames() else "in_progress"
         session.add(obs)
         session.commit()
         session.refresh(obs)

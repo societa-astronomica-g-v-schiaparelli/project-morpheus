@@ -11,9 +11,8 @@ class ObservationRequest(BaseModel):
     target_name: str
     ra: float
     dec: float
-    frames: int
+    frames: dict[str, int]    # {filtro: n_pose}, es. {"L": 30, "R": 30}; le chiavi sono i filtri
     exposition: float
-    filters: list[str]
     binning: str = "BIN1X1"   # BIN1X1 / BIN2X2 / BIN4X4 -> tradotto in modalita' camera
     guide: bool = True
     focus: bool = True
@@ -40,6 +39,18 @@ class ObservationRequest(BaseModel):
     def _valid_binning(cls, value):
         if value not in config.BINNING_TO_MODE:
             raise ValueError(f"binning non valido: {value}. Ammessi: {list(config.BINNING_TO_MODE)}")
+        return value
+
+    @field_validator("frames")
+    @classmethod
+    def _valid_frames(cls, value):
+        if not value:
+            raise ValueError("serve almeno un filtro con pose")
+        for f, n in value.items():
+            if f not in config.FILTER_LIST:
+                raise ValueError(f"filtro non valido: {f}. Ammessi: {config.FILTER_LIST}")
+            if n < 1:
+                raise ValueError(f"le pose per il filtro {f} devono essere >= 1")
         return value
 
     @model_validator(mode="after")

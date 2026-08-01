@@ -40,13 +40,37 @@ def rank_by_visibility(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE):
     return observable
 
 
+def total_frames(frames):
+    """Pose totali di un'osservazione, sommando su tutti i filtri."""
+    return sum(frames.values())
+
+
 def observation_duration_minutes(target):
     """
-    Durata di un'osservazione in minuti: numero di pose per esposizione (in secondi).
-    'target' e' un dict con 'frames' (n. pose) ed 'exposition' (secondi per posa).
+    Durata di un'osservazione in minuti: pose TOTALI (somma su tutti i filtri) per esposizione.
+    'target' ha 'frames' ({filtro: n_pose}) ed 'exposition' (secondi per posa).
     (In futuro qui si aggiungera' l'overhead: download, messa a fuoco, cambio filtro.)
     """
-    return target["frames"] * target["exposition"] / 60
+    return total_frames(target["frames"]) * target["exposition"] / 60
+
+
+def take_frames(frames, n, cycle):
+    """Prende fino a 'n' pose totali da 'frames' ({filtro: count}) seguendo la rotazione
+    (fino a 'cycle' pose per filtro a giro, come le scatta il telescopio). Ritorna
+    (taken, remaining): cosa fa questa notte e cosa resta, entrambi dict {filtro: count}."""
+    taken = {}
+    remaining = {f: c for f, c in frames.items() if c > 0}
+    while n > 0 and remaining:
+        for f in list(remaining.keys()):
+            take = min(cycle, remaining[f], n)
+            taken[f] = taken.get(f, 0) + take
+            remaining[f] -= take
+            n -= take
+            if remaining[f] <= 0:
+                del remaining[f]
+            if n <= 0:
+                break
+    return taken, remaining
 
 
 def _overlaps(start, end, busy):
@@ -169,25 +193,25 @@ def build_schedule(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE, hori
         per_frame_min = t["exposition"] / 60
 
         if t.get("splittable"):
-            # split: piazzo quante pose entrano nel primo buco; le altre alla notte dopo
+            # split: piazzo quante pose (in rotazione) entrano nel primo buco; le altre dopo
             start, avail = first_gap(t["window_start"], t["window_end"], busy)
             frames_fit = int(avail // per_frame_min) if start is not None else 0
             if frames_fit < 1:
                 unplaced.append({"name": t["name"], "remaining_frames": t["frames"],
                                  "reason": "nessun buco stanotte (split rimandato)"})
                 continue
-            frames_now = min(t["frames"], frames_fit)
-            end = start + frames_now * per_frame_min * u.min
+            frames_now, remaining = take_frames(t["frames"], frames_fit, config.FRAMES_PER_CYCLE)
         else:
             # intero o niente: cerco il primo buco che contiene tutta la durata
-            frames_now = t["frames"]
+            frames_now, remaining = t["frames"], {}
             start = earliest_free_start(t["window_start"], observation_duration_minutes(t),
                                         busy, t["window_end"])
             if start is None:
                 unplaced.append({"name": t["name"],
                                  "reason": "nessun buco libero nella sua finestra stanotte"})
                 continue
-            end = start + frames_now * per_frame_min * u.min
+
+        end = start + total_frames(frames_now) * per_frame_min * u.min
 
         # vincolo Luna (opzionale, solo x target liberi): il target deve restare abbastanza
         # lontano dalla Luna per tutta la durata dello slot, altrimenti -> altra notte
@@ -201,14 +225,13 @@ def build_schedule(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE, hori
                                  "reason": "troppo vicino alla Luna, spostato ad altra notte"})
                 continue
 
-        remaining = t["frames"] - frames_now  # >0 solo se split parziale
         scheduled.append({"id": t.get("id"), "name": t["name"], "start": start, "end": end,
-                          "duration_minutes": frames_now * per_frame_min,
-                          "frames": frames_now, "fixed": False, "partial": remaining > 0})
+                          "duration_minutes": total_frames(frames_now) * per_frame_min,
+                          "frames": frames_now, "fixed": False, "partial": bool(remaining)})
         busy.append((start, end))
-        if remaining > 0:
+        if remaining:
             unplaced.append({"name": t["name"], "remaining_frames": remaining,
-                             "reason": f"split: restano {remaining} pose per le prossime notti"})
+                             "reason": f"split: restano {total_frames(remaining)} pose per le prossime notti"})
 
     scheduled.sort(key=lambda e: e["start"].jd)  # ordine cronologico finale
     return {

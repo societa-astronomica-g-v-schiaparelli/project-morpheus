@@ -93,7 +93,8 @@ async def run_night(date_str):
             # FEEDBACK: aspetta che la sequenza finisca, con timeout generoso legato
             # alla durata prevista dello slot; registra i progressi solo se completata.
             duration = (Time(slot.end) - Time(slot.start)).sec
-            outcome, _ = await dispatcher.await_sequence(ws, max_seconds=duration * 1.5 + 120)
+            outcome, _ = await dispatcher.await_sequence(
+                ws, max_seconds=duration * 1.5 + config.SEQUENCE_TIMEOUT_MARGIN)
             if outcome == "ok":
                 record_progress(slot.observation_id, slot.frames)
                 print(f"[morpheus]   completata: +{slot.frames} pose registrate")

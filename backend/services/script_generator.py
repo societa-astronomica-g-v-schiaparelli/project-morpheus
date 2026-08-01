@@ -9,35 +9,29 @@ class IndigoScriptGenerator:
     FOCUS_EXP = config.FOCUS_EXP
     DOME_WAIT = config.DOME_WAIT
 
-    def _build_capture_sequence(self, frames: int, exposition: float, filters: list[str], sequential: bool) -> str:
-        """Helper: Genera la porzione di script JS dedicata agli scatti e ai filtri."""
+    def _build_capture_sequence(self, frames: dict, exposition: float, sequential: bool) -> str:
+        """Helper: genera gli scatti dato 'frames' = {filtro: n_pose}.
+        Sequenziale: tutte le pose di un filtro, poi il prossimo filtro.
+        Altrimenti: rotazione (FRAMES_PER_CYCLE pose per filtro a giro, finche' finite)."""
         script_chunk = ""
 
         if sequential:
-            for f in filters:
-                script_chunk += f"sequence.select_filter(\"{f}\");\n"
-                script_chunk += f"sequence.capture_batch({frames},{exposition});\n"
+            for f, count in frames.items():
+                if count > 0:
+                    script_chunk += f'sequence.select_filter("{f}");\n'
+                    script_chunk += f"sequence.capture_batch({count},{exposition});\n"
             return script_chunk
-        
-        if frames < 1:
-            return script_chunk
-        frames_per_cycle = min(config.FRAMES_PER_CYCLE, frames)
-        cycles = frames // frames_per_cycle
-        remainder = frames % frames_per_cycle
 
-        if cycles > 0:
-            inner = ""
-            for f in filters:
-                inner += f'    sequence.select_filter("{f}");\n'
-                inner += f"    sequence.capture_batch({frames_per_cycle},{exposition});\n"
-            script_chunk += f"sequence.repeat({cycles}, function() {{\n{inner}}});\n"
-
-        # pose rimanenti (se 'frames' non e' multiplo di FRAMES_PER_CYCLE)
-        if remainder > 0:
-            for f in filters:
+        cycle = config.FRAMES_PER_CYCLE
+        remaining = {f: c for f, c in frames.items() if c > 0}
+        while remaining:
+            for f in list(remaining.keys()):
+                take = min(cycle, remaining[f])
                 script_chunk += f'sequence.select_filter("{f}");\n'
-                script_chunk += f"sequence.capture_batch({remainder},{exposition});\n"
-
+                script_chunk += f"sequence.capture_batch({take},{exposition});\n"
+                remaining[f] -= take
+                if remaining[f] <= 0:
+                    del remaining[f]
         return script_chunk
 
     def generate_startup(self) -> str:
@@ -46,7 +40,7 @@ class IndigoScriptGenerator:
         return (f'sequence.load_config("{config.HARDWARE_PRESET}");\n'
                 f"sequence.enable_cooler({self.COOLING_TEMP});")
 
-    def generate_observation(self, target_name: str, ra: str, dec: str, frames: int, exposition: float, filters: list[str], binning: str, guide: bool = False, focus: bool = False, sequential: bool = False) -> str:
+    def generate_observation(self, target_name: str, ra: str, dec: str, frames: dict, exposition: float, binning: str, guide: bool = False, focus: bool = False, sequential: bool = False) -> str:
         """
         Muove il telescopio e gestisce tutti i parametri di osservazione.
         """
@@ -68,7 +62,7 @@ class IndigoScriptGenerator:
             if guide:
                 script += f"sequence.start_guiding({self.FOCUS_EXP});\n"
 
-        script += self._build_capture_sequence(frames, exposition, filters, sequential)
+        script += self._build_capture_sequence(frames, exposition, sequential)
 
         return script
 

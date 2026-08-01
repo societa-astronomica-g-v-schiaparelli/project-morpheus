@@ -52,11 +52,8 @@
 
           <fieldset>
             <legend>Acquisizione</legend>
-            <div class="grid">
-              <label>Pose <input name="frames" type="number" min="1" value="60" required></label>
-              <label>Esposizione (s) <input name="exposition" type="number" min="1" value="120" required></label>
-            </div>
-            <label>Filtri</label>
+            <label>Esposizione (s) <input name="exposition" type="number" min="1" value="120" required></label>
+            <label>Pose per filtro (0 = non usato)</label>
             <div class="filtri" id="filtriBox"></div>
             <label>Binning
               <select name="binning" id="binningSelect" required></select>
@@ -118,6 +115,7 @@
   <script>
     const form = document.getElementById("nuova");
     const ora = (iso) => iso ? iso.slice(11, 16) : "—";   // "...HH:MM:SS" -> "HH:MM"
+    const tot = (d) => Object.values(d || {}).reduce((a, b) => a + b, 0);  // somma pose di un dict
 
     // cambia vista (scheda) e aggiorna l'evidenza dei bottoni
     function mostra(nome) {
@@ -148,7 +146,7 @@
           <td>${o.id}</td>
           <td><strong>${o.target_name}</strong></td>
           <td>${o.ra.toFixed(3)} / ${o.dec.toFixed(3)}</td>
-          <td>${o.frames_done}/${o.frames}</td>
+          <td>${tot(o.frames_done)}/${tot(o.frames)}</td>
           <td><span class="stato ${o.status}">${o.status}</span></td>
           <td>${tipo}</td>
           <td><button data-id="${o.id}" data-name="${o.target_name}" onclick="lancia(this)">Lancia</button></td>`;
@@ -180,14 +178,19 @@
     async function invia(evento) {
       evento.preventDefault();
       const esito = document.getElementById("esito");
-      const filtri = [...form.querySelectorAll('input[name="filtro"]:checked')].map(c => c.value);
-      if (filtri.length === 0) { esito.textContent = "✗ Seleziona almeno un filtro."; return false; }
+      // dict pose per filtro dai campi numerici (solo quelli > 0)
+      const frames = {};
+      form.querySelectorAll('input[name^="posef_"]').forEach(inp => {
+        const n = Number(inp.value);
+        if (n > 0) frames[inp.name.slice(6)] = n;   // "posef_L" -> "L"
+      });
+      if (Object.keys(frames).length === 0) { esito.textContent = "✗ Inserisci le pose per almeno un filtro."; return false; }
 
       const dati = {
         target_name: form.target_name.value,
         ra: form.ra.value, dec: form.dec.value,
-        frames: Number(form.frames.value), exposition: Number(form.exposition.value),
-        filters: filtri, binning: form.binning.value,
+        frames: frames, exposition: Number(form.exposition.value),
+        binning: form.binning.value,
         guide: form.guide.checked, focus: form.focus.checked,
         sequential: form.sequential.checked, splittable: form.splittable.checked,
       };
@@ -249,7 +252,7 @@
             html += `<tr>
               <td>${ora(e.start)}–${ora(e.end)}</td>
               <td><strong>${e.name}</strong></td>
-              <td>${e.frames} pose</td>
+              <td>${tot(e.frames)} pose</td>
               <td>${tag}</td></tr>`;
           }
           html += "</tbody></table>";
@@ -271,11 +274,11 @@
       // menu binning
       document.getElementById("binningSelect").innerHTML =
         cfg.binning.map(b => `<option value="${b}">${b}</option>`).join("");
-      // checkbox filtri (L/R/G/B spuntati di default, il resto no)
-      const preselezionati = ["L", "R", "G", "B"];
-      document.getElementById("filtriBox").innerHTML = cfg.filters.map(f =>
-        `<label><input type="checkbox" name="filtro" value="${f}" ${preselezionati.includes(f) ? "checked" : ""}> ${f}</label>`
-      ).join("");
+      // pose per filtro: un campo numerico per ogni filtro (L/R/G/B con un default, gli altri 0)
+      document.getElementById("filtriBox").innerHTML = cfg.filters.map(f => {
+        const def = ["L", "R", "G", "B"].includes(f) ? 10 : 0;
+        return `<label>${f} <input type="number" name="posef_${f}" min="0" value="${def}" style="width:5rem"></label>`;
+      }).join("");
     }
 
     // avvio
