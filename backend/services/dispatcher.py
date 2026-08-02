@@ -29,8 +29,13 @@ async def send_observation(ws, obs):
     await ws.send(_full_script(body))
 
 async def send_startup(ws):
-    """Accende i sistemi a inizio nottata (es. raffreddamento camera)."""
+    """Accende i sistemi a inizio nottata: carica il preset hardware e avvia il
+    raffreddamento della camera.
+    Poi ASPETTA: load_config impiega qualche secondo e se nel frattempo arriva un
+    altro script INDIGO lo rifiuta (SEQUENCE_STATE -> Alert). La pausa sta qui dentro
+    e non nel chiamante, cosi' nessuno puo' dimenticarsela."""
     await ws.send(_full_script(generator.generate_startup()))
+    await asyncio.sleep(config.STARTUP_SETTLE)
 
 async def send_shutdown(ws):
     """Mette in sicurezza e spegne a fine nottata (park + cooler off)."""

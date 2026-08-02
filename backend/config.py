@@ -1,9 +1,35 @@
-# --- Connessione INDIGO e hardware ---
-INDIGO_WS_URL = "ws://morpheus.astrogeo.va.it:7624"
-HARDWARE_PRESET = "DEFAULT"   # nome del preset INDIGO (load_config)
+# --- QUALE INDIGO: simulatori o telescopio vero? ---
+# True  = simulatori sulla VM (morpheus). E' la modalita' normale per provare.
+# False = HARDWARE VERO in osservatorio (babele): da usare SOLO insieme ai tecnici.
+# Un unico interruttore decide indirizzo, preset e modalita' della camera, che sono
+# diversi fra i due sistemi: cambiarli a mano uno per uno e' un ottimo modo per
+# puntare al telescopio vero per sbaglio.
+USE_SIMULATOR = True
+
+if USE_SIMULATOR:
+    INDIGO_WS_URL = "ws://morpheus.astrogeo.va.it:7624"
+    HARDWARE_PRESET = "Default"       # l'unico preset del server dei simulatori
+    DOME_WAIT = 5                     # nessuna cupola da girare davvero
+    BINNING_TO_MODE = {               # etichette di CCD_MODE del simulatore
+        "BIN1X1": "RAW 1600x1200",
+        "BIN2X2": "RAW 800x600",
+        "BIN4X4": "RAW 400x300",
+    }
+else:
+    INDIGO_WS_URL = "ws://babele.astrogeo.va.it:7624"
+    HARDWARE_PRESET = "DEFAULT"       # ⚠️ nome ANCORA DA CONFERMARE con i tecnici
+    DOME_WAIT = 120                   # s, attesa per l'allineamento della cupola
+    BINNING_TO_MODE = {               # etichette di CCD_MODE della camera vera
+        "BIN1X1": "RAW 16 4499x3599",
+        "BIN2X2": "RAW 16 2249x1799",
+        "BIN4X4": "RAW 16 1124x899",
+    }
+
 COOLING_TEMP = -20        # °C, temperatura di raffreddamento della camera
 FOCUS_EXP = 5             # s, esposizione per messa a fuoco / precise goto
-DOME_WAIT = 120           # s, attesa per l'allineamento della cupola
+STARTUP_SETTLE = 15       # s, pausa dopo lo startup prima di mandare la prima osservazione:
+                          # load_config impiega qualche secondo e uno script inviato mentre
+                          # e' ancora in corso viene rifiutato (SEQUENCE_STATE -> Alert)
 
 # --- Scheduling ---
 DEFAULT_MIN_ALTITUDE = 30    # gradi, soglia soft di comodita' (solo target liberi)
@@ -27,11 +53,7 @@ LIVE_POLL_INTERVAL = 1.0        # s, ogni quanto l'SSE rilegge lo stato per il b
 LIVE_STALE_AFTER = 120          # s, oltre questo silenzio morpheus e' considerato non attivo
 
 # --- Mappe e liste (fornite dai tecnici) ---
-BINNING_TO_MODE = {
-    "BIN1X1": "RAW 16 4499x3599",
-    "BIN2X2": "RAW 16 2249x1799",
-    "BIN4X4": "RAW 16 1124x899",
-}
+# NB BINNING_TO_MODE sta piu' in alto: dipende da quale camera si sta usando.
 FILTER_LIST = ["L", "R", "G", "B", "R-Photometric", "Ha", "SII", "OIII", "Clear"]
 FRAME_TYPE_LIST = ["Light", "Dark", "Bias", "Flat"]
 DEFAULT_FRAME_TYPE = "Light"   # di base forziamo sempre Light (tipologia di scatto)
