@@ -86,7 +86,8 @@ async def dispatch_observation_now(obs, wait_seconds=180):
     NON aggiorna il DB (e' una prova ripetibile). Ritorna {outcome, progress}.
     """
     try:
-        async with websockets.connect(config.INDIGO_WS_URL, open_timeout=5, max_size=None) as ws:
+        async with websockets.connect(config.INDIGO_WS_URL, open_timeout=5, max_size=None,
+                                      ping_interval=config.WS_PING_INTERVAL) as ws:
             await send_startup(ws)
             await send_observation(ws, obs)
             outcome, progress = await await_sequence(ws, wait_seconds)

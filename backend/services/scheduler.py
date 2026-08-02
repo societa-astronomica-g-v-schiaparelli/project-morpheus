@@ -24,6 +24,18 @@ def rank_by_visibility(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE):
         return []  # notte bianca: niente da schedulare
     night_start, night_end = night
 
+    if config.SIMULATION_MODE:
+        # In simulazione il cielo non e' un vincolo: la notte finta cade quasi sempre di
+        # giorno, quindi con i calcoli veri NESSUN target risulterebbe visibile e non ci
+        # sarebbe niente da schedulare. Qui li dichiariamo tutti osservabili per l'intera
+        # finestra; l'ordine resta quello di arrivo (FIFO), perche' il criterio di
+        # priorita' per visibilita' non avrebbe senso su altezze inventate.
+        return [{**t, "observable": True,
+                 "window_start": night_start, "window_end": night_end,
+                 "transit_time": night_start, "max_altitude": 90.0, "mean_altitude": 90.0,
+                 "duration_minutes": (night_end - night_start).sec / 60}
+                for t in targets]
+
     # per ogni target: curva di altitudine nella notte + riassunto di visibilita'.
     # Ogni target puo' avere una sua soglia 'min_altitude'; altrimenti usa quella globale.
     enriched = []
@@ -95,6 +107,8 @@ def above_horizon_until(ra, dec, start, end, floor=0, step_minutes=5):
     Serve a troncare un orario fisso al momento in cui il target tramonta, invece di
     puntare il telescopio a terra.
     """
+    if config.SIMULATION_MODE:
+        return end          # in simulazione il cielo non vincola: niente tramonti
     n = int(round((end - start).sec / 60 / step_minutes)) + 1
     times = start + np.arange(n) * step_minutes * u.min
     below = np.where(altitude_at(ra, dec, times) <= floor)[0]
@@ -211,8 +225,10 @@ def build_schedule(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE, hori
             continue
 
         # (b) la fisica vince sull'utente: se il target e' gia' sotto l'orizzonte quando
-        #     si comincia, l'osservazione e' impossibile (telescopio puntato a terra)
-        if float(altitude_at(t["ra"], t["dec"], start)) <= horizon_limit:
+        #     si comincia, l'osservazione e' impossibile (telescopio puntato a terra).
+        #     In simulazione si scavalca, come tutti gli altri vincoli astronomici.
+        if not config.SIMULATION_MODE and \
+                float(altitude_at(t["ra"], t["dec"], start)) <= horizon_limit:
             conflicts.append({
                 "name": t["name"],
                 "reason": "target sotto l'orizzonte all'orario fisso richiesto (impossibile)",
@@ -301,7 +317,7 @@ def build_schedule(targets, date, min_altitude=config.DEFAULT_MIN_ALTITUDE, hori
 
         # vincolo Luna (opzionale, solo x target liberi): il target deve restare abbastanza
         # lontano dalla Luna per tutta la durata dello slot, altrimenti -> altra notte
-        if t.get("moon_check"):
+        if t.get("moon_check") and not config.SIMULATION_MODE:
             n = int(round((end - start).sec / 60 / 5)) + 1
             slot_times = start + np.arange(n) * 5 * u.min
             info = moon_constraint_ok(t["ra"], t["dec"], slot_times,

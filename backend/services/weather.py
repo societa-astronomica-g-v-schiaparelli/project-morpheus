@@ -1,6 +1,7 @@
 import urllib.request
 import json
 from astropy.time import Time
+import config
 from services.astronomy import night_window, OBSERVATORY
 
 
@@ -59,6 +60,11 @@ def weather_is_favorable(date):
     Se le previsioni non sono raggiungibili NON blocca (favorable=True) ma lo segnala:
     meglio non fermare le osservazioni solo perche' il servizio meteo e' giu'.
     """
+    if config.SIMULATION_MODE:
+        # in simulazione il meteo non deve mai far abortire una prova: staresti a
+        # chiederti perche' non parte niente, e non c'entrerebbe con cio' che collaudi
+        return {"favorable": True, "reason": "modalita' simulazione: meteo scavalcato"}
+
     night = night_window(Time(date))
     if night is None:
         return {"favorable": True, "reason": "notte bianca: niente da osservare"}

@@ -18,7 +18,7 @@ import config
 from db import (observations_to_schedule, save_plan, list_slots, get_observation,
                 record_progress, log_execution, set_live_status)
 from services.scheduler import plan_campaign
-from services.astronomy import night_window
+from services.astronomy import night_window, simulation_epoch
 from services.weather import weather_is_favorable
 from services import dispatcher
 
@@ -40,19 +40,36 @@ async def sleep_until(when_iso):
         await asyncio.sleep(delay)
 
 
-def next_observing_night(now=None):
+def next_observing_night(now=None, skip=None):
     """Trova la prossima notte da osservare: ritorna (date_str, wake) dove 'date_str'
     e' la sera di riferimento e 'wake' e' il Time in cui svegliarsi (inizio notte
     meno WAKE_BEFORE_MIN). Prende la sera di oggi se il momento di sveglia non e'
-    ancora passato, altrimenti va avanti. Salta le notti bianche."""
+    ancora passato, altrimenti va avanti. Salta le notti bianche.
+    'skip' e' la notte appena conclusa, da non riproporre.
+    In SIMULAZIONE si parte subito: la prima notte finta e' quella in corso (o la
+    prossima, se quella di adesso e' gia' finita), e non c'e' nessuna sveglia
+    anticipata da rispettare."""
     now = now or Time.now()
+
+    if config.SIMULATION_MODE:
+        epoch = simulation_epoch()
+        cycle = config.SIMULATION_MINUTES + config.SIMULATION_GAP_MINUTES
+        for i in range(365):
+            start = epoch + i * cycle * u.min
+            day_str = (Time(epoch.iso[:10]) + i * u.day).iso[:10]
+            # va bene la notte ancora in corso (cosi' si parte subito), tranne se e'
+            # quella che abbiamo appena eseguito: altrimenti la rifaremmo all'infinito
+            if start + config.SIMULATION_MINUTES * u.min > now and day_str != skip:
+                return day_str, start
+        return None, None
+
     day = Time(now.iso[:10])                       # mezzanotte UTC di oggi
     for _ in range(365):                           # cerca in avanti (max ~1 anno)
         night = night_window(day)
         if night is not None:
             night_start, _ = night
             wake = night_start - config.WAKE_BEFORE_MIN * u.min
-            if wake > now:
+            if wake > now and day.iso[:10] != skip:
                 return day.iso[:10], wake
         day = day + 1 * u.day
     return None, None
@@ -112,7 +129,8 @@ async def run_night(date_str):
     #    (il preludio e' incluso in ogni script inviato, non piu' seminato a parte)
     set_live_status(phase="accensione", night=date_str,
                     message="Accensione della strumentazione")
-    async with websockets.connect(config.INDIGO_WS_URL, open_timeout=5, max_size=None) as ws:
+    async with websockets.connect(config.INDIGO_WS_URL, open_timeout=5, max_size=None,
+                                  ping_interval=config.WS_PING_INTERVAL) as ws:
         await dispatcher.send_startup(ws)   # carica il preset (load_config) + accende
 
         # 4) invia ogni osservazione al suo orario e aspetta il suo esito
@@ -157,8 +175,12 @@ async def run_night(date_str):
 async def main_loop():
     """Il ciclo eterno: dormi -> svegliati -> esegui la notte -> ripeti."""
     print("[morpheus] avviato. Veglio, mentre l'osservatorio \"dorme\".")
+    if config.SIMULATION_MODE:
+        print(f"[morpheus] ATTENZIONE: modalita' SIMULAZIONE — notti finte da "
+              f"{config.SIMULATION_MINUTES} min, vincoli astronomici e meteo scavalcati")
+    fatta = None                       # l'ultima notte eseguita, da non ripetere
     while True:
-        date_str, wake = next_observing_night()
+        date_str, wake = next_observing_night(skip=fatta)
         if date_str is None:
             print("[morpheus] nessuna notte trovata nell'orizzonte, mi fermo")
             return
@@ -173,6 +195,7 @@ async def main_loop():
             print(f"[morpheus] errore nella nottata {date_str}: {e}")
             set_live_status(phase="fermo", night=date_str,
                             message=f"Errore nella nottata {date_str}: {e}")
+        fatta = date_str
 
 
 if __name__ == "__main__":

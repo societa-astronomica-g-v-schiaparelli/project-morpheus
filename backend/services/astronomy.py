@@ -101,6 +101,46 @@ def sun_altitude(time):
     return cast(float, sun.transform_to(pov).alt.deg)
 
 
+_simulation_epoch = None
+
+
+def simulation_epoch():
+    """
+    L'istante in cui e' "iniziata" la notte simulata. Si fissa alla PRIMA chiamata e poi
+    non cambia piu': se leggesse l'ora a ogni chiamata, la stessa notte verrebbe fuori
+    con orari diversi a ogni ricalcolo e il piano non tornerebbe con se' stesso.
+    ATTENZIONE: e' per-processo. In simulazione conviene pianificare ed eseguire dallo
+    stesso processo (morpheus), altrimenti l'app web parte da un istante zero diverso.
+    """
+    global _simulation_epoch
+    if _simulation_epoch is None:
+        _simulation_epoch = Time.now()
+    return _simulation_epoch
+
+
+def reset_simulation_clock(epoch=None):
+    """Rimette a zero (o forza a un istante preciso) l'orologio della simulazione.
+    Serve ai test, che devono poter partire da un istante noto."""
+    global _simulation_epoch
+    _simulation_epoch = epoch
+
+
+def _simulated_night(date):
+    """
+    La notte in modalita' SIMULAZIONE: il calendario e' compresso, ogni "giorno" diventa
+    una finestra di SIMULATION_MINUTES seguita da una pausa di SIMULATION_GAP_MINUTES.
+    Cosi' in mezz'ora si collaudano split, rollover e orari fissi ricorrenti, che
+    altrimenti richiederebbero giorni veri. Il giorno 0 e' quello di partenza.
+    """
+    epoch = simulation_epoch()
+    day = int(round(date.jd - Time(epoch.iso[:10]).jd))     # 0 = giorno di partenza
+    if day < 0:
+        return None                                          # prima dell'inizio: non esiste
+    cycle = config.SIMULATION_MINUTES + config.SIMULATION_GAP_MINUTES
+    start = epoch + day * cycle * u.min
+    return start, start + config.SIMULATION_MINUTES * u.min
+
+
 def night_window(date, twilight_deg=-18, step_minutes=2):
     """
     Trova inizio e fine della notte per una data notte.
@@ -113,6 +153,9 @@ def night_window(date, twilight_deg=-18, step_minutes=2):
     Ritorna (night_start, night_end) come Time, oppure None se il Sole non scende
     mai sotto la soglia (notti bianche a latitudini alte).
     """
+    if config.SIMULATION_MODE:
+        return _simulated_night(date)
+
     # mezzogiorno UTC del giorno indicato: il Sole e' alto, siamo lontani dalla notte
     noon = Time(date.iso.split()[0] + " 12:00:00")
     times = noon + np.arange(0, 24 * 60 + 1, step_minutes) * u.min
