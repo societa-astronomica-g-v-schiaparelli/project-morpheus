@@ -3,15 +3,18 @@ Feedback in tempo reale su cosa sta facendo morpheus.
 
 morpheus e' un processo SEPARATO dall'app web: non possono chiamarsi a vicenda, ma
 condividono il database. Lui scrive la sua riga di stato (LiveStatus), qui la si
-rilegge e la si spinge al browser via SSE (Server-Sent Events), che e' un flusso HTTP
-tenuto aperto su cui il server manda eventi quando ha qualcosa da dire.
+rilegge e la si manda al browser via SSE (Server-Sent Events), il flusso HTTP su cui
+il server spinge eventi quando ha qualcosa da dire.
+
+Si usa l'SSE NATIVO di FastAPI (`fastapi.sse`, dalla 0.135): e' lui a occuparsi di
+keep-alive, disconnessione del client e chiusura pulita allo spegnimento del server.
 """
 import asyncio
-import json
+from collections.abc import AsyncIterable
 from datetime import datetime, timezone
 
 from fastapi import APIRouter
-from fastapi.responses import StreamingResponse
+from fastapi.sse import EventSourceResponse, ServerSentEvent
 from fastapi.encoders import jsonable_encoder
 
 import config
@@ -29,7 +32,8 @@ def _snapshot():
         return {"phase": "fermo", "message": "morpheus non e' mai stato avviato",
                 "active": False}
     data = jsonable_encoder(status)
-    silence = (datetime.now(timezone.utc) - status.updated_at.replace(tzinfo=timezone.utc)).total_seconds()
+    silence = (datetime.now(timezone.utc)
+               - status.updated_at.replace(tzinfo=timezone.utc)).total_seconds()
     data["active"] = silence < config.LIVE_STALE_AFTER
     if not data["active"]:
         data["message"] = f"morpheus non risponde da {int(silence // 60)} min"
@@ -42,25 +46,17 @@ async def live():
     return _snapshot()
 
 
-@router.get("/live/stream")
-async def live_stream():
+@router.get("/live/stream", response_class=EventSourceResponse)
+async def live_stream() -> AsyncIterable[ServerSentEvent]:
     """
-    Lo stesso stato, ma in flusso continuo: la connessione resta aperta e ogni volta
-    che lo stato CAMBIA parte un evento verso il browser. Quando non cambia nulla si
-    manda un commento SSE (una riga che inizia con ':'), che il browser ignora ma
-    tiene viva la connessione attraverso eventuali proxy.
+    Lo stesso stato, ma in flusso continuo: parte un evento ogni volta che lo stato
+    CAMBIA. Il primo si manda sempre, cosi' una pagina appena aperta sa subito
+    com'e' messo senza aspettare il primo cambiamento.
     """
-    async def events():
-        last = None
-        while True:
-            data = _snapshot()
-            if data != last:
-                last = data
-                yield f"data: {json.dumps(data)}\n\n"
-            else:
-                yield ": keep-alive\n\n"
-            await asyncio.sleep(config.LIVE_POLL_INTERVAL)
-
-    return StreamingResponse(events(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache",
-                                      "X-Accel-Buffering": "no"})
+    last = None
+    while True:
+        data = _snapshot()
+        if data != last:
+            last = data
+            yield ServerSentEvent(data=data, event="live")
+        await asyncio.sleep(config.LIVE_POLL_INTERVAL)
