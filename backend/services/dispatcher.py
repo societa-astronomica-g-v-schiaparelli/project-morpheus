@@ -14,13 +14,29 @@ def run_script(script):
         "name": "AGENT_SCRIPTING_RUN_SCRIPT", "items": [{"name": "SCRIPT", "value": script}]}})
 
 
-def _full_script(body):
-    """Ogni invio a INDIGO e' un'UNICA esecuzione: preludio + script finalizzato.
-    (INDIGO vuole il preludio insieme allo script, non 'seminato' a parte.)"""
-    return run_script(PRELUDE + "\n" + generator.finalize_script(body))
+async def send_prelude(ws):
+    """Carica UNA sola volta a serata il preludio (Sequencer.js, ~1600 righe): e' la
+    DEFINIZIONE della classe Sequence, non un oggetto. Va mandato all'apertura della
+    connessione, PRIMA di qualsiasi altro script. Cosi' i comandi successivi possono
+    usare 'new Sequence()' senza riportarsi dietro il preludione, e ogni invio resta
+    piccolo (~60 KB il preludio una volta, pochi byte i singoli script).
+    E' il modo in cui lavora l'Ain; il telescopio vero (babele) sembra rifiutare i
+    messaggi troppo grandi, ed e' per questo che prima glielo incollavamo dentro ogni
+    volta e non partiva nulla. Poi ASPETTA che il preludio sia interpretato, altrimenti
+    il primo script arriverebbe prima che la classe Sequence esista."""
+    await ws.send(run_script(PRELUDE))
+    await asyncio.sleep(config.PRELUDE_SETTLE)
+
+
+def _sequence_message(body):
+    """Confeziona il messaggio INDIGO che esegue UNA sequenza: 'new Sequence()' +
+    corpo + 'start()' (via finalize_script), incapsulato in un RUN_SCRIPT. NIENTE
+    preludio: quello si manda una volta sola, all'inizio, con send_prelude()."""
+    return run_script(generator.finalize_script(body))
 
 async def send_observation(ws, obs, wait_until=None):
-    """Genera lo script per UNA osservazione (preludio incluso) e lo invia a INDIGO.
+    """Genera lo script per UNA osservazione e lo invia a INDIGO (il preludio e' gia'
+    stato caricato all'apertura della connessione, vedi send_prelude).
     'wait_until' (ISO UTC), se passato, inchioda l'inizio delle pose a quell'istante:
     lo usano gli orari fissi perche' le pose partano all'ora esatta chiesta dall'utente."""
     body = generator.generate_observation(
@@ -29,7 +45,7 @@ async def send_observation(ws, obs, wait_until=None):
         binning=obs.binning, guide=obs.guide, focus=obs.focus, sequential=obs.sequential,
         wait_until=wait_until,
     )
-    await ws.send(_full_script(body))
+    await ws.send(_sequence_message(body))
 
 async def send_startup(ws):
     """Accende i sistemi a inizio nottata: carica il preset hardware e avvia il
@@ -37,12 +53,12 @@ async def send_startup(ws):
     Poi ASPETTA: load_config impiega qualche secondo e se nel frattempo arriva un
     altro script INDIGO lo rifiuta (SEQUENCE_STATE -> Alert). La pausa sta qui dentro
     e non nel chiamante, cosi' nessuno puo' dimenticarsela."""
-    await ws.send(_full_script(generator.generate_startup()))
+    await ws.send(_sequence_message(generator.generate_startup()))
     await asyncio.sleep(config.STARTUP_SETTLE)
 
 async def send_shutdown(ws):
     """Mette in sicurezza e spegne a fine nottata (park + cooler off)."""
-    await ws.send(_full_script(generator.generate_shutdown()))
+    await ws.send(_sequence_message(generator.generate_shutdown()))
 
 async def await_sequence(ws, max_seconds, on_progress=None):
     """
@@ -96,6 +112,7 @@ async def dispatch_observation_now(obs, wait_seconds=180):
     try:
         async with websockets.connect(config.INDIGO_WS_URL, open_timeout=5, max_size=None,
                                       ping_interval=config.WS_PING_INTERVAL) as ws:
+            await send_prelude(ws)   # una volta all'apertura: definisce la classe Sequence
             await send_startup(ws)
             await send_observation(ws, obs)
             outcome, progress = await await_sequence(ws, wait_seconds)

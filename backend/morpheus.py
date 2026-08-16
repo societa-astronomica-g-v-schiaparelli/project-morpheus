@@ -125,12 +125,13 @@ async def run_night(date_str):
         return
     print(f"[morpheus] {len(slots)} slot in programma")
 
-    # 3) una connessione per tutta la notte: accendi e avvia
-    #    (il preludio e' incluso in ogni script inviato, non piu' seminato a parte)
+    # 3) una connessione per tutta la notte: carica il preludio una volta, poi accendi
+    #    (i singoli script restano piccoli: la classe Sequence e' gia' definita)
     set_live_status(phase="accensione", night=date_str,
                     message="Accensione della strumentazione")
     async with websockets.connect(config.INDIGO_WS_URL, open_timeout=5, max_size=None,
                                   ping_interval=config.WS_PING_INTERVAL) as ws:
+        await dispatcher.send_prelude(ws)   # una volta a serata: definisce la classe Sequence
         await dispatcher.send_startup(ws)   # carica il preset (load_config) + accende
 
         # 4) invia ogni osservazione al suo orario e aspetta il suo esito

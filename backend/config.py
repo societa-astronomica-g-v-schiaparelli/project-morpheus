@@ -35,6 +35,9 @@ GUIDE_EXP = 2             # s, esposizione della camera di guida (start_guiding)
 STARTUP_SETTLE = 15       # s, pausa dopo lo startup prima di mandare la prima osservazione:
                           # load_config impiega qualche secondo e uno script inviato mentre
                           # e' ancora in corso viene rifiutato (SEQUENCE_STATE -> Alert)
+PRELUDE_SETTLE = 2        # s, pausa dopo aver caricato il preludio (definizione della classe
+                          # Sequence): lasciare a INDIGO il tempo di interpretarlo prima di
+                          # mandare il primo script che usa 'new Sequence()'
 
 # --- Scheduling ---
 DEFAULT_MIN_ALTITUDE = 30    # gradi, soglia soft di comodita' (solo target liberi)
