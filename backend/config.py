@@ -15,18 +15,23 @@ if USE_SIMULATOR:
         "BIN2X2": "RAW 800x600",
         "BIN4X4": "RAW 400x300",
     }
+    ENABLE_MERIDIAN_FLIP = False      # il mount simulato non ha il flip al meridiano
+    IMAGE_FORMAT = None               # sul simulatore non forziamo il formato immagine
 else:
     INDIGO_WS_URL = "ws://babele.astrogeo.va.it:7624"
-    HARDWARE_PRESET = "DEFAULT"       # ⚠️ nome ANCORA DA CONFERMARE con i tecnici
+    HARDWARE_PRESET = "Default"       # ⚠️ nome ANCORA DA CONFERMARE con i tecnici
     DOME_WAIT = 120                   # s, attesa per l'allineamento della cupola
     BINNING_TO_MODE = {               # etichette di CCD_MODE della camera vera
         "BIN1X1": "RAW 16 4499x3599",
         "BIN2X2": "RAW 16 2249x1799",
         "BIN4X4": "RAW 16 1124x899",
     }
+    ENABLE_MERIDIAN_FLIP = True       # funzione avanzata del telescopio vero
+    IMAGE_FORMAT = "FITS format"      # formato di salvataggio richiesto dai tecnici
 
 COOLING_TEMP = -20        # °C, temperatura di raffreddamento della camera
 FOCUS_EXP = 5             # s, esposizione per messa a fuoco / precise goto
+GUIDE_EXP = 2             # s, esposizione della camera di guida (start_guiding)
 STARTUP_SETTLE = 15       # s, pausa dopo lo startup prima di mandare la prima osservazione:
                           # load_config impiega qualche secondo e uno script inviato mentre
                           # e' ancora in corso viene rifiutato (SEQUENCE_STATE -> Alert)

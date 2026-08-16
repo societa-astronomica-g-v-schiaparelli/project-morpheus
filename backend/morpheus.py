@@ -17,7 +17,7 @@ import websockets
 import config
 from db import (observations_to_schedule, save_plan, list_slots, get_observation,
                 record_progress, log_execution, set_live_status)
-from services.scheduler import plan_campaign
+from services.scheduler import plan_campaign, overhead_minutes
 from services.astronomy import night_window, simulation_epoch
 from services.weather import weather_is_favorable
 from services import dispatcher
@@ -147,7 +147,13 @@ async def run_night(date_str):
                             message=f"Preparazione di {slot.target_name}",
                             observation_id=slot.observation_id, target_name=slot.target_name,
                             slot_start=slot.start, slot_end=slot.end)
-            await dispatcher.send_observation(ws, obs)
+            # per un orario FISSO le pose devono partire all'ora esatta chiesta dall'utente:
+            # lo slot inizia 'overhead' prima (preparazione), quindi l'ora delle pose e'
+            # start + overhead. wait_until la inchioda; per gli altri oggetti si parte subito.
+            wait_until = None
+            if slot.fixed:
+                wait_until = (Time(slot.start) + overhead_minutes() * u.min).iso
+            await dispatcher.send_observation(ws, obs, wait_until=wait_until)
 
             # FEEDBACK: aspetta che la sequenza finisca, con timeout generoso legato
             # alla durata prevista dello slot; registra i progressi solo se completata.

@@ -19,12 +19,15 @@ def _full_script(body):
     (INDIGO vuole il preludio insieme allo script, non 'seminato' a parte.)"""
     return run_script(PRELUDE + "\n" + generator.finalize_script(body))
 
-async def send_observation(ws, obs):
-    """Genera lo script per UNA osservazione (preludio incluso) e lo invia a INDIGO."""
+async def send_observation(ws, obs, wait_until=None):
+    """Genera lo script per UNA osservazione (preludio incluso) e lo invia a INDIGO.
+    'wait_until' (ISO UTC), se passato, inchioda l'inizio delle pose a quell'istante:
+    lo usano gli orari fissi perche' le pose partano all'ora esatta chiesta dall'utente."""
     body = generator.generate_observation(
         target_name=obs.target_name, ra=obs.ra, dec=obs.dec,
         frames=obs.frames, exposition=obs.exposition,
         binning=obs.binning, guide=obs.guide, focus=obs.focus, sequential=obs.sequential,
+        wait_until=wait_until,
     )
     await ws.send(_full_script(body))
 

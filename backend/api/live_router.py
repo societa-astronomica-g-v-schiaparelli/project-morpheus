@@ -52,11 +52,15 @@ async def live_stream() -> AsyncIterable[ServerSentEvent]:
     Lo stesso stato, ma in flusso continuo: parte un evento ogni volta che lo stato
     CAMBIA. Il primo si manda sempre, cosi' una pagina appena aperta sa subito
     com'e' messo senza aspettare il primo cambiamento.
+
+    NB niente 'event=': l'evento resta quello di default ('message'), l'unico che il
+    browser intercetta con EventSource.onmessage. Con un nome (es. event="live")
+    servirebbe addEventListener("live", ...) e onmessage non scatterebbe mai.
     """
     last = None
     while True:
         data = _snapshot()
         if data != last:
             last = data
-            yield ServerSentEvent(data=data, event="live")
+            yield ServerSentEvent(data=data)
         await asyncio.sleep(config.LIVE_POLL_INTERVAL)
