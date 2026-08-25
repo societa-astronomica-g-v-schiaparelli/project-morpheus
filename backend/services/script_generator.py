@@ -47,10 +47,10 @@ class IndigoScriptGenerator:
         lines = [f'sequence.load_config("{config.HARDWARE_PRESET}");']
         if config.ENABLE_MERIDIAN_FLIP:
             lines.append("sequence.enable_meridian_flip(true, 0);")
-        lines.append(f"sequence.enable_cooler({self.COOLING_TEMP});")
         lines.append(f'sequence.select_frame_type("{config.DEFAULT_FRAME_TYPE}");')
         if config.IMAGE_FORMAT:
             lines.append(f'sequence.select_image_format("{config.IMAGE_FORMAT}");')
+        lines.append(f"sequence.enable_cooler({self.COOLING_TEMP});")
         return "\n".join(lines)
 
     def generate_observation(self, target_name: str, ra: float, dec: float, frames: dict,
