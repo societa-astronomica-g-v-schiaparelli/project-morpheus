@@ -197,8 +197,18 @@ def test_a_broken_callback_does_not_fail_the_sequence():
 
 
 def test_alert_state_is_reported():
-    ws = FakeWebSocket([sequence_message("Alert", 1, 3)])
+    ws = FakeWebSocket([sequence_message("Busy", 1, 3), sequence_message("Alert", 1, 3)])
     assert asyncio.run(dispatcher.await_sequence(ws, 10))[0] == "alert"
+
+
+def test_stale_ok_before_busy_is_ignored():
+    """Lo stato iniziale della sequenza e' gia' 'Ok': non deve chiudere l'attesa prima
+    che la sequenza sia davvero partita. Si aspetta il 'Busy', poi il vero 'Ok'."""
+    ws = FakeWebSocket([sequence_message("Ok", 0, 1),     # Ok residuo/iniziale, da ignorare
+                        sequence_message("Busy", 0, 1),   # la sequenza parte davvero
+                        sequence_message("Ok", 1, 1)])     # vero completamento
+    esito, ultimo = asyncio.run(dispatcher.await_sequence(ws, 10))
+    assert esito == "ok" and ultimo["PROGRESS"] == 1
 
 
 def test_silence_becomes_a_timeout():

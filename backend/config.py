@@ -45,11 +45,11 @@ HORIZON_LIMIT = 0            # gradi, limite fisico dell'orizzonte (anche per i 
 NIGHTS_HORIZON = 7          # su quante notti pianificare
 WAKE_BEFORE_MIN = 30       # min, quanto prima dell'inizio notte si sveglia morpheus
 OVERHEAD_MINUTES = 10      # min, overhead per slot PRIMA delle pose (slew/fuoco/guida)
-OVERHEAD_MINUTES_TEST = 1  # min, overhead usato quando TEST_MODE e' attivo (la preparazione e' piu' corta)
+OVERHEAD_MINUTES_TEST = 0.25  # min, overhead usato quando TEST_MODE e' attivo (la preparazione e' piu' corta)
 FRAMES_PER_CYCLE = 3       # pose per filtro prima di ruotare (rotazione filtri)
 
 # --- Feedback / rete ---
-WS_RECV_TIMEOUT = 5             # s, attesa massima per un singolo messaggio da INDIGO
+WS_RECV_TIMEOUT = 120             # s, attesa massima per un singolo messaggio da INDIGO
 # La libreria websockets manda un "ping" periodico e CHIUDE la connessione se non
 # riceve risposta. INDIGO non risponde a quei ping: durante una sequenza lunga la
 # connessione cadrebbe sempre (visto dal vivo il 2026-08-01). None = niente ping;
@@ -68,6 +68,6 @@ DEFAULT_FRAME_TYPE = "Light"   # di base forziamo sempre Light (tipologia di sca
 
 # --- Modalita' di test (SOLO per i test, mai in produzione) ---
 TEST_MODE = True          # se True, bypassa focus/guida/precise_goto (simulatore lento)
-SIMULATION_MODE = False      # se True, la "notte" e' adesso -> adesso + SIMULATION_MINUTES
-SIMULATION_MINUTES = 30      # durata della notte simulata
-SIMULATION_GAP_MINUTES = 5   # pausa fra una notte simulata e la successiva (il "giorno")
+SIMULATION_MODE = True      # se True, la "notte" e' adesso -> adesso + SIMULATION_MINUTES
+SIMULATION_MINUTES = 2      # durata della notte simulata
+SIMULATION_GAP_MINUTES = 1   # pausa fra una notte simulata e la successiva (il "giorno")

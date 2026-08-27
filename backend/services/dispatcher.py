@@ -49,12 +49,15 @@ async def send_observation(ws, obs, wait_until=None):
 
 async def send_startup(ws):
     """Accende i sistemi a inizio nottata: carica il preset hardware e avvia il
-    raffreddamento della camera.
-    Poi ASPETTA: load_config impiega qualche secondo e se nel frattempo arriva un
-    altro script INDIGO lo rifiuta (SEQUENCE_STATE -> Alert). La pausa sta qui dentro
-    e non nel chiamante, cosi' nessuno puo' dimenticarsela."""
+    raffreddamento della camera. Poi ASPETTA che la sequenza di startup sia CONCLUSA
+    (SEQUENCE_STATE -> Ok), consumandone il messaggio di fine.
+    Perche' e' cruciale: se non si consuma l'Ok dello startup, quel messaggio resta nel
+    buffer e viene letto dalla PRIMA osservazione, che risulterebbe 'completata'
+    all'istante. In pratica ogni target sembrava finito una sequenza in anticipo. Aspettare
+    la conclusione reale sostituisce (meglio) la vecchia pausa fissa: load_config impiega
+    qualche secondo e uno script inviato prima verrebbe rifiutato."""
     await ws.send(_sequence_message(generator.generate_startup()))
-    await asyncio.sleep(config.STARTUP_SETTLE)
+    await await_sequence(ws, max_seconds=config.STARTUP_SETTLE)
 
 async def send_shutdown(ws):
     """Mette in sicurezza e spegne a fine nottata (park + cooler off)."""
@@ -66,9 +69,14 @@ async def await_sequence(ws, max_seconds, on_progress=None):
     non termina. Ritorna (esito, progressi):
       - esito: 'ok' (SEQUENCE_STATE=Ok) | 'alert' (Alert) | 'timeout'
       - progressi: ultimo dizionario di item di SEQUENCE_STATE (STEP, PROGRESS, ...)
-    Legge di continuo -> stato reale + buffer sempre svuotato.
-    Assunzione: l'invio appena fatto porta SEQUENCE_STATE a Busy, quindi il primo
-    stato terminale che vediamo appartiene a questa sequenza.
+
+    IMPORTANTE (bug risolto): lo stato INIZIALE di SEQUENCE_STATE nel preludio e' gia'
+    "Ok" (Sequencer.js), e INDIGO invia lo stato corrente della proprieta' non appena
+    ci si collega. Se accettassimo il primo "Ok" che vediamo, chiuderemmo l'attesa prima
+    ancora che la sequenza parta, facendo risultare ogni target "completato" all'istante.
+    Per questo si aspetta di vedere la sequenza andare in "Busy" (cioe' partire davvero)
+    e solo DOPO si accetta uno stato terminale (Ok/Alert). Il preludio garantisce il
+    passaggio per "Busy" durante una ripresa.
 
     'on_progress', se passato, viene chiamato a OGNI aggiornamento di SEQUENCE_STATE
     con il dizionario di quel momento: e' cosi' che il feedback diventa "vivo" invece
@@ -77,6 +85,7 @@ async def await_sequence(ws, max_seconds, on_progress=None):
     """
     deadline = asyncio.get_event_loop().time() + max_seconds
     progress = {}
+    started = False   # abbiamo visto la sequenza andare in "Busy" (cioe' partire)?
     while asyncio.get_event_loop().time() < deadline:
         try:
             raw = await asyncio.wait_for(ws.recv(), timeout=config.WS_RECV_TIMEOUT)
@@ -96,9 +105,11 @@ async def await_sequence(ws, max_seconds, on_progress=None):
                     on_progress(progress)
                 except Exception as e:
                     print(f"[dispatcher] avviso: on_progress ha fallito ({e})")
-            if state == "Ok":
+            if state == "Busy":
+                started = True
+            elif started and state == "Ok":
                 return "ok", progress
-            if state == "Alert":
+            elif started and state == "Alert":
                 return "alert", progress
     return "timeout", progress
 
