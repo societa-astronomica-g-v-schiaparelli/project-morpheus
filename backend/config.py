@@ -70,4 +70,4 @@ DEFAULT_FRAME_TYPE = "Light"   # di base forziamo sempre Light (tipologia di sca
 TEST_MODE = True          # se True, bypassa focus/guida/precise_goto (simulatore lento)
 SIMULATION_MODE = True      # se True, la "notte" e' adesso -> adesso + SIMULATION_MINUTES
 SIMULATION_MINUTES = 2      # durata della notte simulata
-SIMULATION_GAP_MINUTES = 1   # pausa fra una notte simulata e la successiva (il "giorno")
+SIMULATION_GAP_MINUTES = 0.5   # pausa fra una notte simulata e la successiva (il "giorno")

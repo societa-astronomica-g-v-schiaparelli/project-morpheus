@@ -166,8 +166,13 @@
       cont.innerHTML = "";
       for (const o of storico) {
         const art = document.createElement("article");
+        // "completata il" = l'ultima notte in cui e' stata osservata (il vero completamento),
+        // non l'ora reale di archiviazione (che in simulazione differisce dalle notti finte)
+        const notti = (o.nights || []).map(n => n.night);
+        const completataIl = notti.length ? notti.reduce((a, b) => a > b ? a : b)
+                                           : (o.completed_at || "").slice(0, 10);
         let html = `<header><strong>${o.target_name}</strong> · ${tot(o.frames)} pose da ${o.exposition}s
-                    · completata il ${(o.completed_at || "").slice(0, 10)}</header>`;
+                    · completata il ${completataIl}</header>`;
         if (o.nights.length === 0) {
           html += "<small>nessuna notte registrata nel diario di bordo</small>";
         } else {
