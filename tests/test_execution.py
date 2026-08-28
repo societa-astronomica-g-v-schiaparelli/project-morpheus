@@ -216,6 +216,27 @@ def test_silence_becomes_a_timeout():
     assert asyncio.run(dispatcher.await_sequence(ws, 0.2))[0] == "timeout"
 
 
+def test_send_observation_uses_the_slot_chunk_not_the_whole_request(monkeypatch):
+    """Uno split deve inviare SOLO le pose dello slot di stanotte, non tutte quelle
+    dell'osservazione: altrimenti ogni notte rifarebbe l'intera ripresa."""
+    catturato = {}
+    monkeypatch.setattr(dispatcher.generator, "generate_observation",
+                        lambda **kw: catturato.update(kw) or "corpo")
+
+    class Obs:
+        target_name, ra, dec = "X", 1.0, 2.0
+        frames = {"L": 20}
+        exposition, binning = 5, "BIN1X1"
+        guide = focus = sequential = False
+
+    class WS:
+        async def send(self, _):
+            pass
+
+    asyncio.run(dispatcher.send_observation(WS(), Obs(), frames={"L": 7}))
+    assert catturato["frames"] == {"L": 7}
+
+
 # ============================================================ il flusso SSE
 
 def test_sse_stream_emits_the_current_state(temp_db):

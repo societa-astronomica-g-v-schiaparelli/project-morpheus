@@ -34,14 +34,17 @@ def _sequence_message(body):
     preludio: quello si manda una volta sola, all'inizio, con send_prelude()."""
     return run_script(generator.finalize_script(body))
 
-async def send_observation(ws, obs, wait_until=None):
+async def send_observation(ws, obs, wait_until=None, frames=None):
     """Genera lo script per UNA osservazione e lo invia a INDIGO (il preludio e' gia'
     stato caricato all'apertura della connessione, vedi send_prelude).
     'wait_until' (ISO UTC), se passato, inchioda l'inizio delle pose a quell'istante:
-    lo usano gli orari fissi perche' le pose partano all'ora esatta chiesta dall'utente."""
+    lo usano gli orari fissi perche' le pose partano all'ora esatta chiesta dall'utente.
+    'frames', se passato, SOSTITUISCE le pose dell'osservazione: morpheus lo usa per
+    inviare SOLO lo spezzone di pose dello slot di stanotte, altrimenti un'osservazione
+    suddivisa rifarebbe tutte le pose ad ogni notte. Se None, si usano tutte (obs.frames)."""
     body = generator.generate_observation(
         target_name=obs.target_name, ra=obs.ra, dec=obs.dec,
-        frames=obs.frames, exposition=obs.exposition,
+        frames=obs.frames if frames is None else frames, exposition=obs.exposition,
         binning=obs.binning, guide=obs.guide, focus=obs.focus, sequential=obs.sequential,
         wait_until=wait_until,
     )

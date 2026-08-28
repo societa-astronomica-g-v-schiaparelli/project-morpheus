@@ -154,7 +154,9 @@ async def run_night(date_str):
             wait_until = None
             if slot.fixed:
                 wait_until = (Time(slot.start) + overhead_minutes() * u.min).iso
-            await dispatcher.send_observation(ws, obs, wait_until=wait_until)
+            # invia SOLO le pose dello slot di stanotte (lo spezzone dello split),
+            # non tutte le pose dell'osservazione: altrimenti ogni notte rifarebbe l'intera ripresa.
+            await dispatcher.send_observation(ws, obs, wait_until=wait_until, frames=slot.frames)
 
             # FEEDBACK: aspetta che la sequenza finisca, con timeout generoso legato
             # alla durata prevista dello slot; registra i progressi solo se completata.
