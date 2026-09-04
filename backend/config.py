@@ -45,7 +45,7 @@ HORIZON_LIMIT = 0            # gradi, limite fisico dell'orizzonte (anche per i 
 NIGHTS_HORIZON = 7          # su quante notti pianificare
 WAKE_BEFORE_MIN = 30       # min, quanto prima dell'inizio notte si sveglia morpheus
 OVERHEAD_MINUTES = 10      # min, overhead per slot PRIMA delle pose (slew/fuoco/guida)
-OVERHEAD_MINUTES_TEST = 0.25  # min, overhead usato quando TEST_MODE e' attivo (la preparazione e' piu' corta)
+OVERHEAD_MINUTES_TEST = 1  # min, overhead usato quando TEST_MODE e' attivo (la preparazione e' piu' corta)
 FRAMES_PER_CYCLE = 3       # pose per filtro prima di ruotare (rotazione filtri)
 
 # --- Feedback / rete ---
@@ -66,8 +66,11 @@ FILTER_LIST = ["L", "R", "G", "B", "R-Photometric", "Ha", "SII", "OIII", "Clear"
 FRAME_TYPE_LIST = ["Light", "Dark", "Bias", "Flat"]
 DEFAULT_FRAME_TYPE = "Light"   # di base forziamo sempre Light (tipologia di scatto)
 
-# --- Modalita' di test (SOLO per i test, mai in produzione) ---
-TEST_MODE = True          # se True, bypassa focus/guida/precise_goto (simulatore lento)
-SIMULATION_MODE = True      # se True, la "notte" e' adesso -> adesso + SIMULATION_MINUTES
-SIMULATION_MINUTES = 2      # durata della notte simulata
-SIMULATION_GAP_MINUTES = 0.5   # pausa fra una notte simulata e la successiva (il "giorno")
+# --- Modalita' di test/simulazione (SOLO per prove e demo, mai in produzione) ---
+# In esercizio normale vanno tenute ENTRAMBE a False: morpheus segue le notti
+# astronomiche vere e invia la sequenza completa (fuoco, guida, precise goto).
+# Si accendono solo per una prova rapida o una demo su notti "finte" compresse.
+TEST_MODE = False          # se True, bypassa focus/guida/precise_goto (simulatore lento)
+SIMULATION_MODE = False     # se True, la "notte" e' adesso -> adesso + SIMULATION_MINUTES
+SIMULATION_MINUTES = 30     # durata della notte simulata (usato solo con SIMULATION_MODE)
+SIMULATION_GAP_MINUTES = 5  # pausa fra una notte simulata e la successiva (il "giorno")
